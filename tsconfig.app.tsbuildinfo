@@ -1,0 +1,1 @@
+{"root":["./src/main.ts","./src/router/index.ts","./src/stores/app.ts","./src/stores/peer.ts","./src/types/index.ts","./src/app.vue","./src/components/callscreen.vue","./src/components/chatscreen.vue","./src/components/dashboard.vue","./src/components/welcomescreen.vue"],"version":"5.8.3"}
