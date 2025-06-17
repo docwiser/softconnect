@@ -261,6 +261,11 @@ Close Settings
 <button @click="hideKeyboardHelp" class="btn btn-secondary">Close Help</button>
 </div>
 </div>
+<div v-else>
+<p>no call in progress</p>
+<p>your on-going call will appear here</p>
+<RouterLink to="/dashboard">Back to dashboard</RouterLink>
+</div>
 <div aria-live="assertive" class="sr-only">
 {{ announcement }}
 </div>
@@ -268,7 +273,7 @@ Close Settings
 </template>
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter, RouterLink} from "vue-router";
 import { useAppStore } from "../stores/app";
 import { usePeerStore } from "../stores/peer";
 const route = useRoute();

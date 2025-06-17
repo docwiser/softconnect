@@ -1,5 +1,5 @@
 <template>
-<div class="dashboard" role="main">
+<div class="dashboard">
 <header class="dashboard-header">
 <div class="header-content">
 <h1 class="dashboard-title">Soft connect</h1>
@@ -73,7 +73,7 @@ role="listitem"
 <button 
 @click="openChat(chat.peerId)"
 class="chat-button"
-`:aria-describedby="`chat-${chat.peerId}-desc`"
+:aria-describedby="`chat-${chat.peerId}-desc`"
 >
 <div class="chat-avatar">
 {{ chat.peerName.charAt(0).toUpperCase() }}

@@ -24,7 +24,12 @@ debug: 2,
 config: {
 iceServers: [
 { urls: "stun:stun.l.google.com:19302" },
-{ urls: "stun:stun1.l.google.com:19302" }
+{ urls: "stun:stun1.l.google.com:19302" },
+{
+urls: "turn:turn.speed.cloudflare.com:50000",
+username: "42e3c6df2be45b0bc95bfe58bd6fe8ee7a24577911658e690afedbb9c01889e3f5e086df4ccf543ecb6eaf2fe8402529eeb6d46a57bfdbf376aabd191f6d5947",
+credential: "aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e3b5fa7c8342b2e9802fb"
+}
 ]
 }
 });

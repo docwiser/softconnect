@@ -1,5 +1,5 @@
 <template>
-<div class="chat-screen" role="main">
+<div class="chat-screen">
 <header class="chat-header">
 <button 
 @click="goBack"
