@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref, markRaw } from 'vue'
 import Peer from 'peerjs'
-import type { DataConnection, MediaConnection } from 'peerjs'
+import type { MediaConnection, DataConnection} from 'peerjs'
 import { useAppStore } from './app'
 import {
   db,
@@ -17,7 +17,8 @@ export const usePeerStore = defineStore('peer', () => {
 
   const peer = ref<Peer | null>(null)
   const myPeerConnectionId = ref<string>('')
-  const connections = ref<Map<string, DataConnection>>(new Map())
+  // Fix TS2739: use the actual return type of peer.connect()
+  const connections = ref(new Map<string, DataConnection>())
   const mediaConnections = new Map<string, MediaConnection>()
 
   const localStream = ref<MediaStream | null>(null)
@@ -25,20 +26,24 @@ export const usePeerStore = defineStore('peer', () => {
   const screenStream = ref<MediaStream | null>(null)
   const isScreenSharing = ref(false)
 
+  // Connection status tracking
+  const peerConnectionStatus = ref<'disconnected' | 'connecting' | 'connected' | 'failed'>('disconnected')
+  const remotePeerOnline = ref(false)
+
   const ringtoneAudio = ref<HTMLAudioElement | null>(null)
   const holdAudio = ref<HTMLAudioElement | null>(null)
 
   // ─── Peer Initialization ───────────────────────────────────────────────────
   async function initializePeer(uid: string): Promise<string> {
     return new Promise((resolve, reject) => {
+      // Destroy existing peer if any
       if (peer.value && !peer.value.destroyed) {
         resolve(myPeerConnectionId.value)
         return
       }
 
-      // Use UID-based peer ID for direct addressing
       const peerId = `sc_${uid}`
-      const p = new Peer(peerId, {
+      const peerInstance = new Peer(peerId, {
         debug: 0,
         config: {
           iceServers: [
@@ -55,33 +60,55 @@ export const usePeerStore = defineStore('peer', () => {
         }
       })
 
-      p.on('open', async (id) => {
-        peer.value = markRaw(p)
+      const timeout = setTimeout(() => {
+        reject(new Error('PeerJS init timeout'))
+      }, 15000)
+
+      peerInstance.on('open', async (id) => {
+        clearTimeout(timeout)
+        peer.value = markRaw(peerInstance)
         myPeerConnectionId.value = id
+        peerConnectionStatus.value = 'connected'
         setupPeerListeners()
-        // Store PeerJS ID in Firestore for lookup
         try {
           await setDoc(doc(db, 'peerIds', uid), { peerId: id, updatedAt: Timestamp.now() })
         } catch (e) { console.warn('Could not store peer ID', e) }
         resolve(id)
       })
 
-      p.on('error', (err) => {
+      peerInstance.on('error', (err) => {
+        clearTimeout(timeout)
         console.error('PeerJS error:', err)
-        if (err.type === 'unavailable-id') {
-          // ID taken — append random suffix
-          const fallback = `sc_${uid}_${Math.random().toString(36).slice(2, 7)}`
-          const p2 = new Peer(fallback, (p as any)._options)
-          p2.on('open', (id) => {
-            peer.value = markRaw(p2)
+        if ((err as any).type === 'unavailable-id') {
+          // ID taken — try fallback with random suffix
+          const fallbackId = `sc_${uid}_${Math.random().toString(36).slice(2, 7)}`
+          const fallbackPeer = new Peer(fallbackId, (peerInstance as any)._options)
+          fallbackPeer.on('open', async (id) => {
+            peer.value = markRaw(fallbackPeer)
             myPeerConnectionId.value = id
+            peerConnectionStatus.value = 'connected'
             setupPeerListeners()
+            try {
+              await setDoc(doc(db, 'peerIds', uid), { peerId: id, updatedAt: Timestamp.now() })
+            } catch {}
             resolve(id)
           })
-          p2.on('error', reject)
+          fallbackPeer.on('error', reject)
         } else {
+          peerConnectionStatus.value = 'failed'
           reject(err)
         }
+      })
+
+      peerInstance.on('disconnected', () => {
+        peerConnectionStatus.value = 'disconnected'
+        // Auto-reconnect after 3s
+        setTimeout(() => {
+          if (peer.value && !peer.value.destroyed) {
+            peer.value.reconnect()
+            peerConnectionStatus.value = 'connecting'
+          }
+        }, 3000)
       })
     })
   }
@@ -90,17 +117,14 @@ export const usePeerStore = defineStore('peer', () => {
     if (!peer.value) return
     peer.value.on('connection', handleIncomingConnection)
     peer.value.on('call', handleIncomingMediaCall)
-    peer.value.on('disconnected', () => {
-      setTimeout(() => peer.value?.reconnect(), 3000)
-    })
   }
 
   function handleIncomingConnection(conn: DataConnection) {
     conn.on('open', () => {
       connections.value.set(conn.peer, conn)
-      conn.on('data', (data: any) => handleDataMessage(conn.peer, data))
+      conn.on('data', (data: unknown) => handleDataMessage(conn.peer, data as any))
       conn.on('close', () => connections.value.delete(conn.peer))
-      conn.on('error', (e) => console.warn('Connection error:', e))
+      conn.on('error', (e: Error) => console.warn('Connection error:', e))
     })
   }
 
@@ -122,35 +146,54 @@ export const usePeerStore = defineStore('peer', () => {
         handleRemoteHold(data.data)
         break
       case 'message-notification':
-        // lightweight ping for new message
         appStore.addNotification(`New message from ${data.data?.senderName}`)
+        break
+      case 'ping':
+        // respond to connectivity check
+        sendDataToPeer(fromPeerId, { type: 'pong' })
         break
     }
   }
 
   // ─── Connection ─────────────────────────────────────────────────────────────
-  async function connectToPeer(targetPeerId: string): Promise<DataConnection> {
+  async function connectToPeer(targetPeerId: string, timeoutMs = 10000): Promise<DataConnection> {
     if (!peer.value) throw new Error('Peer not initialized')
 
     const existing = connections.value.get(targetPeerId)
-    if (existing?.open) return existing
-
+    if (existing?.open) return existing as DataConnection
     return new Promise((resolve, reject) => {
       const conn = peer.value!.connect(targetPeerId, { reliable: true })
-      const timeout = setTimeout(() => reject(new Error('Connection timeout')), 15000)
+      const timer = setTimeout(() => {
+        reject(new Error('Connection timeout'))
+      }, timeoutMs)
 
       conn.on('open', () => {
-        clearTimeout(timeout)
+        clearTimeout(timer)
         connections.value.set(targetPeerId, conn)
-        conn.on('data', (data: any) => handleDataMessage(targetPeerId, data))
+        conn.on('data', (data: unknown) => handleDataMessage(targetPeerId, data as any))
         conn.on('close', () => connections.value.delete(targetPeerId))
         resolve(conn)
       })
-      conn.on('error', (e) => {
-        clearTimeout(timeout)
+      conn.on('error', (e: Error) => {
+        clearTimeout(timer)
         reject(e)
       })
     })
+  }
+
+  /**
+   * Check if a remote peer is reachable. Returns true if connected.
+   */
+  async function checkPeerOnline(targetPeerConnectionId: string): Promise<boolean> {
+    if (!peer.value) return false
+    try {
+      await connectToPeer(targetPeerConnectionId, 5000)
+      remotePeerOnline.value = true
+      return true
+    } catch {
+      remotePeerOnline.value = false
+      return false
+    }
   }
 
   function sendDataToPeer(targetPeerId: string, data: any) {
@@ -161,21 +204,29 @@ export const usePeerStore = defineStore('peer', () => {
   }
 
   // ─── Calling ─────────────────────────────────────────────────────────────────
-  async function startCall(targetUid: string, targetPeerConnectionId: string, withVideo: boolean) {
+  async function startCall(targetUid: string, targetPeerConnectionId: string, withVideo: boolean): Promise<boolean> {
     if (appStore.callState.isActive || appStore.callState.isIncoming) {
       sendDataToPeer(targetPeerConnectionId, { type: 'call-busy' })
-      return
+      return false
     }
 
     try {
+      // First check if peer is reachable
+      let conn: DataConnection
+      try {
+        conn = await connectToPeer(targetPeerConnectionId, 6000)
+      } catch {
+        appStore.addNotification(`${appStore.callState.peerName || 'User'} can't take the call right now. You can leave them a message.`, 'warning')
+        return false
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: withVideo
       })
       localStream.value = stream
 
-      // Signal call-request via data channel first
-      await connectToPeer(targetPeerConnectionId)
+      // Signal call-request via data channel
       sendDataToPeer(targetPeerConnectionId, {
         type: 'call-request',
         data: {
@@ -211,20 +262,30 @@ export const usePeerStore = defineStore('peer', () => {
       appStore.updateCallState({
         isActive: true,
         isOutgoing: true,
+        isIncoming: false,
         peerId: targetUid,
         peerConnectionId: targetPeerConnectionId,
         isVideoEnabled: withVideo,
         callId,
         startedAt: Date.now()
       })
-    } catch (err) {
-      appStore.addNotification('Failed to access media devices', 'error')
+
+      return true
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        appStore.addNotification('Microphone/Camera permission denied', 'error')
+      } else if (err?.name === 'NotFoundError') {
+        appStore.addNotification('No microphone found', 'error')
+      } else {
+        appStore.addNotification('Failed to start call', 'error')
+      }
       console.error('startCall error:', err)
+      cleanupCall()
+      return false
     }
   }
 
   function handleIncomingMediaCall(call: MediaConnection) {
-    // Managed by call-request data message
     mediaConnections.set(call.peer, markRaw(call))
   }
 
@@ -237,6 +298,7 @@ export const usePeerStore = defineStore('peer', () => {
     appStore.updateCallState({
       isActive: true,
       isIncoming: true,
+      isOutgoing: false,
       peerId: data.data.callerUid,
       peerName: data.data.callerName,
       peerPhoto: data.data.callerPhoto || null,
@@ -282,8 +344,12 @@ export const usePeerStore = defineStore('peer', () => {
         duration: 0
       })
       appStore.updateCallState({ callId })
-    } catch (err) {
-      appStore.addNotification('Failed to access media devices', 'error')
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        appStore.addNotification('Camera/Microphone permission denied', 'error')
+      } else {
+        appStore.addNotification('Failed to access media devices', 'error')
+      }
     }
   }
 
@@ -304,8 +370,11 @@ export const usePeerStore = defineStore('peer', () => {
   }
 
   function handleCallRejected(data: any) {
-    appStore.addNotification(`Call rejected: ${data?.reason || 'Unknown reason'}`)
-    if (data?.message) appStore.addNotification(`Message: ${data.message}`)
+    if (data?.message) {
+      appStore.addNotification(`Message: "${data.message}"`, 'info')
+    } else {
+      appStore.addNotification(`Call declined: ${data?.reason || 'No answer'}`, 'warning')
+    }
     if (appStore.callState.callId) {
       updateCallRecord(appStore.callState.callId, {
         status: 'rejected',
@@ -317,7 +386,7 @@ export const usePeerStore = defineStore('peer', () => {
   }
 
   function handleCallBusy() {
-    appStore.addNotification('User is currently busy', 'warning')
+    appStore.addNotification('User is currently in another call', 'warning')
     cleanupCall()
   }
 
@@ -329,7 +398,6 @@ export const usePeerStore = defineStore('peer', () => {
     const peerConnId = appStore.callState.peerConnectionId
     sendDataToPeer(peerConnId, { type: 'call-end' })
 
-    // Update call record
     if (appStore.callState.callId) {
       const duration = appStore.callState.startedAt
         ? Math.floor((Date.now() - appStore.callState.startedAt) / 1000)
@@ -354,6 +422,7 @@ export const usePeerStore = defineStore('peer', () => {
     remoteStream.value = null
     screenStream.value = null
     isScreenSharing.value = false
+    remotePeerOnline.value = false
 
     stopRingtone()
     stopHoldAudio()
@@ -364,10 +433,13 @@ export const usePeerStore = defineStore('peer', () => {
     call.on('stream', (stream) => {
       remoteStream.value = stream
     })
-    call.on('close', () => cleanupCall())
-    call.on('error', (e) => {
+    call.on('close', () => {
+      appStore.addNotification('Call ended', 'info')
+      cleanupCall()
+    })
+    call.on('error', (e: Error) => {
       console.error('Call error:', e)
-      appStore.addNotification('Call error occurred', 'error')
+      appStore.addNotification('Call connection error', 'error')
       cleanupCall()
     })
   }
@@ -384,20 +456,24 @@ export const usePeerStore = defineStore('peer', () => {
 
   async function toggleVideo() {
     if (!appStore.callState.isVideoEnabled) {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-      if (localStream.value) {
-        localStream.value.getTracks().forEach(t => t.stop())
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+        if (localStream.value) {
+          localStream.value.getTracks().forEach(t => t.stop())
+        }
+        localStream.value = stream
+        const peerConnId = appStore.callState.peerConnectionId
+        const call = mediaConnections.get(peerConnId)
+        if (call?.peerConnection) {
+          const vTrack = stream.getVideoTracks()[0]
+          const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'video')
+          if (sender) await sender.replaceTrack(vTrack)
+          else call.peerConnection.addTrack(vTrack, stream)
+        }
+        appStore.updateCallState({ isVideoEnabled: true })
+      } catch {
+        throw new Error('Camera access denied')
       }
-      localStream.value = stream
-      const peerConnId = appStore.callState.peerConnectionId
-      const call = mediaConnections.get(peerConnId)
-      if (call?.peerConnection) {
-        const vTrack = stream.getVideoTracks()[0]
-        const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'video')
-        if (sender) await sender.replaceTrack(vTrack)
-        else call.peerConnection.addTrack(vTrack, stream)
-      }
-      appStore.updateCallState({ isVideoEnabled: true })
     } else {
       const vTrack = localStream.value?.getVideoTracks()[0]
       if (vTrack) { vTrack.enabled = false; vTrack.stop() }
@@ -419,7 +495,9 @@ export const usePeerStore = defineStore('peer', () => {
           if (sender) await sender.replaceTrack(vTrack)
         }
         sStream.getVideoTracks()[0].onended = () => stopScreenShare()
-      } catch { appStore.addNotification('Screen share failed', 'error') }
+      } catch {
+        appStore.addNotification('Screen share cancelled or failed', 'warning')
+      }
     } else {
       stopScreenShare()
     }
@@ -429,7 +507,6 @@ export const usePeerStore = defineStore('peer', () => {
     screenStream.value?.getTracks().forEach(t => t.stop())
     screenStream.value = null
     isScreenSharing.value = false
-    // Restore camera
     if (appStore.callState.isVideoEnabled && localStream.value) {
       const peerConnId = appStore.callState.peerConnectionId
       const call = mediaConnections.get(peerConnId)
@@ -450,42 +527,50 @@ export const usePeerStore = defineStore('peer', () => {
   }
 
   async function changeAudioInput(deviceId: string) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId }, video: appStore.callState.isVideoEnabled })
-    if (localStream.value) {
-      const oldTrack = localStream.value.getAudioTracks()[0]
-      localStream.value.removeTrack(oldTrack); oldTrack.stop()
-      localStream.value.addTrack(stream.getAudioTracks()[0])
-      const peerConnId = appStore.callState.peerConnectionId
-      const call = mediaConnections.get(peerConnId)
-      if (call?.peerConnection) {
-        const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'audio')
-        if (sender) await sender.replaceTrack(stream.getAudioTracks()[0])
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId },
+        video: appStore.callState.isVideoEnabled
+      })
+      if (localStream.value) {
+        const oldTrack = localStream.value.getAudioTracks()[0]
+        if (oldTrack) { localStream.value.removeTrack(oldTrack); oldTrack.stop() }
+        localStream.value.addTrack(stream.getAudioTracks()[0])
+        const peerConnId = appStore.callState.peerConnectionId
+        const call = mediaConnections.get(peerConnId)
+        if (call?.peerConnection) {
+          const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'audio')
+          if (sender) await sender.replaceTrack(stream.getAudioTracks()[0])
+        }
       }
-    }
-    appStore.updateCallState({ currentAudioInput: deviceId })
+      appStore.updateCallState({ currentAudioInput: deviceId })
+    } catch { appStore.addNotification('Could not switch microphone', 'error') }
   }
 
   async function changeVideoInput(deviceId: string) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { deviceId } })
-    if (localStream.value) {
-      const oldTrack = localStream.value.getVideoTracks()[0]
-      localStream.value.removeTrack(oldTrack); oldTrack.stop()
-      localStream.value.addTrack(stream.getVideoTracks()[0])
-      const peerConnId = appStore.callState.peerConnectionId
-      const call = mediaConnections.get(peerConnId)
-      if (call?.peerConnection) {
-        const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'video')
-        if (sender) await sender.replaceTrack(stream.getVideoTracks()[0])
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { deviceId } })
+      if (localStream.value) {
+        const oldTrack = localStream.value.getVideoTracks()[0]
+        if (oldTrack) { localStream.value.removeTrack(oldTrack); oldTrack.stop() }
+        localStream.value.addTrack(stream.getVideoTracks()[0])
+        const peerConnId = appStore.callState.peerConnectionId
+        const call = mediaConnections.get(peerConnId)
+        if (call?.peerConnection) {
+          const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'video')
+          if (sender) await sender.replaceTrack(stream.getVideoTracks()[0])
+        }
       }
-    }
-    appStore.updateCallState({ currentVideoInput: deviceId })
+      appStore.updateCallState({ currentVideoInput: deviceId })
+    } catch { appStore.addNotification('Could not switch camera', 'error') }
   }
 
-  // ─── Audio ──────────────────────────────────────────────────────────────────
+  // ─── Audio Helpers ──────────────────────────────────────────────────────────
   function playRingtone() {
     if (!ringtoneAudio.value) {
-      ringtoneAudio.value = new Audio('https://techassistantforblind.com/file/processing.mp3')
+      ringtoneAudio.value = new Audio('/sounds/ringtone.mp3')
       ringtoneAudio.value.loop = true
+      ringtoneAudio.value.volume = 0.7
     }
     ringtoneAudio.value.play().catch(() => {})
   }
@@ -495,8 +580,9 @@ export const usePeerStore = defineStore('peer', () => {
   }
   function playHoldAudio() {
     if (!holdAudio.value) {
-      holdAudio.value = new Audio('https://techassistantforblind.com/file/processing.mp3')
+      holdAudio.value = new Audio('/sounds/hold.mp3')
       holdAudio.value.loop = true
+      holdAudio.value.volume = 0.4
     }
     holdAudio.value.play().catch(() => {})
   }
@@ -513,8 +599,11 @@ export const usePeerStore = defineStore('peer', () => {
     remoteStream,
     screenStream,
     isScreenSharing,
+    peerConnectionStatus,
+    remotePeerOnline,
     initializePeer,
     connectToPeer,
+    checkPeerOnline,
     sendDataToPeer,
     startCall,
     answerCall,

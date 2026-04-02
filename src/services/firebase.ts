@@ -100,6 +100,7 @@ export interface Message {
   timestamp: Timestamp | null
   type: 'text' | 'system' | 'image'
   readBy: string[]
+  replyTo?: string
   deleted: boolean
 }
 

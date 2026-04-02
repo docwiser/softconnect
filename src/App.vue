@@ -1,5 +1,8 @@
 <template>
   <div id="app">
+    <!-- Skip to main content link for keyboard users -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
     <!-- Global incoming call banner (shows on any screen except /call) -->
     <Transition name="call-banner">
       <div
@@ -7,10 +10,11 @@
         class="global-call-banner"
         role="alert"
         aria-live="assertive"
+        aria-atomic="true"
       >
-        <div class="banner-pulse"></div>
+        <div class="banner-pulse" aria-hidden="true"></div>
         <div class="banner-info">
-          <span class="banner-avatar">
+          <span class="banner-avatar" aria-hidden="true">
             <img v-if="callState.peerPhoto" :src="callState.peerPhoto" :alt="callState.peerName" />
             <span v-else>{{ callState.peerName.charAt(0).toUpperCase() }}</span>
           </span>
@@ -25,26 +29,47 @@
       </div>
     </Transition>
 
-    <RouterView />
+    <!-- Main content -->
+    <main id="main-content" tabindex="-1">
+      <RouterView />
+    </main>
 
     <!-- Toast Notifications -->
-    <div class="toast-stack" role="region" aria-label="Notifications" aria-live="polite">
+    <div
+      class="toast-stack"
+      role="region"
+      aria-label="Notifications"
+      aria-live="polite"
+      aria-atomic="false"
+    >
       <Transition
         v-for="notif in notifications"
         :key="notif.id"
         name="toast"
       >
-        <div :class="['toast', `toast-${notif.type}`]" role="status">
-          <span class="toast-icon">{{ toastIcon(notif.type) }}</span>
+        <div
+          :class="['toast', `toast-${notif.type}`]"
+          role="status"
+          :aria-label="`${notif.type} notification: ${notif.message}`"
+        >
+          <span class="toast-icon" aria-hidden="true">{{ toastIcon(notif.type) }}</span>
           <span class="toast-msg">{{ notif.message }}</span>
         </div>
       </Transition>
     </div>
+
+    <!-- Route Announcer for screen readers -->
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      class="route-announcer"
+    >{{ routeAnnouncement }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { useAppStore } from './stores/app'
 import { useAuth } from './composables/useAuth'
@@ -55,11 +80,29 @@ const { init } = useAuth()
 
 const notifications = computed(() => appStore.notifications)
 const callState = computed(() => appStore.callState)
+const routeAnnouncement = computed(() => appStore.routeAnnouncement)
 
 const showCallBanner = computed(() => {
   const hasCall = callState.value.isActive || callState.value.isIncoming
   const notOnCallScreen = route.name !== 'call'
   return hasCall && notOnCallScreen
+})
+
+// Announce route changes to screen readers
+watch(() => route.name, (newName) => {
+  const routeNames: Record<string, string> = {
+    'welcome': 'Loading…',
+    'auth': 'Sign in page',
+    'dashboard': 'Messages — Dashboard',
+    'chat': 'Chat conversation',
+    'call': 'Active call',
+    'new-chat': 'New conversation',
+    'profile': 'User profile',
+    'settings': 'Settings',
+    'call-history': 'Call history',
+  }
+  const label = routeNames[newName as string] || String(newName)
+  appStore.announceRoute(`Navigated to: ${label}`)
 })
 
 function toastIcon(type: string): string {
@@ -130,6 +173,25 @@ a { color: inherit; text-decoration: none; }
 #app {
   position: relative;
   min-height: 100vh;
+}
+
+/* ── Skip Link ────────────────────────────────────────────────────────────────── */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 0.5rem;
+  background: #5c3bff;
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 0 0 8px 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  z-index: 99999;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+  outline: none;
 }
 
 /* ── Call Banner ─────────────────────────────────────────────────────────────── */
@@ -284,5 +346,16 @@ a { color: inherit; text-decoration: none; }
 .toast-leave-to {
   opacity: 0;
   transform: translateY(-10px) scale(0.95);
+}
+
+/* ── Route Announcer (visually hidden, accessible) ────────────────────────── */
+.route-announcer {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+  left: -9999px;
 }
 </style>

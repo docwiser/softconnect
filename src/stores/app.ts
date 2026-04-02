@@ -39,6 +39,9 @@ export const useAppStore = defineStore('app', () => {
   const availableAudioOutputs = ref<MediaDeviceInfo[]>([])
   const availableVideoInputs = ref<MediaDeviceInfo[]>([])
 
+  // ─── Route Announcer ────────────────────────────────────────────────────────
+  const routeAnnouncement = ref('')
+
   // ─── Computed ────────────────────────────────────────────────────────────────
   const activeChatData = computed(() => {
     if (!activeChatId.value) return null
@@ -110,13 +113,21 @@ export const useAppStore = defineStore('app', () => {
     }, 5000)
   }
 
-  function updateUserSettings(settings: Partial<typeof currentUserProfile.value.settings>) {
+  function updateUserSettings(settings: Partial<NonNullable<typeof currentUserProfile.value>['settings']>) {
     if (currentUserProfile.value) {
       currentUserProfile.value.settings = {
         ...currentUserProfile.value.settings,
         ...settings
       }
     }
+  }
+
+  function announceRoute(message: string) {
+    routeAnnouncement.value = ''
+    // Use nextTick-like delay to ensure screen reader re-reads
+    setTimeout(() => {
+      routeAnnouncement.value = message
+    }, 50)
   }
 
   return {
@@ -133,6 +144,7 @@ export const useAppStore = defineStore('app', () => {
     availableAudioInputs,
     availableAudioOutputs,
     availableVideoInputs,
+    routeAnnouncement,
     // Computed
     activeChatData,
     sortedChats,
@@ -147,6 +159,7 @@ export const useAppStore = defineStore('app', () => {
     resetCallState,
     setCallHistory,
     addNotification,
-    updateUserSettings
+    updateUserSettings,
+    announceRoute
   }
 })

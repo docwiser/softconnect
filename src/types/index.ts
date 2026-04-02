@@ -26,3 +26,8 @@ export interface PeerSignal {
   data?: any
   senderId?: string
 }
+
+export interface RouteAnnouncement {
+  message: string
+  timestamp: number
+}
