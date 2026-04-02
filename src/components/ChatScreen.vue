@@ -1,751 +1,711 @@
 <template>
-<div class="chat-screen">
-<header class="chat-header">
-<button 
-@click="goBack"
-class="back-btn"
-aria-label="Go back to dashboard"
->
-← Back
-</button>
-<div class="peer-info">
-<h1 class="peer-name">{{ chatData?.peerName || "Unknown" }}</h1>
-<span class="peer-id">ID: {{ peerId }}</span>
-</div>
-<div class="call-actions">
-<button 
-@click="shareChat"
-class="share-btn"
-aria-label="Share chat link"
-title="Share chat link"
->
-🔗
-</button>
-<button 
-@click="startVoiceCall"
-class="call-btn voice-call"
-:aria-label="`Start voice call with ${chatData?.peerName}`"
-title="Voice call"
-:disabled="isCallInProgress"
->
-📞
-</button>
-<button 
-@click="startVideoCall"
-class="call-btn video-call"
-:aria-label="`Start video call with ${chatData?.peerName}`"
-title="Video call"
-:disabled="isCallInProgress"
->
-📹
-</button>
-</div>
-</header>
-<div class="messages-container" role="log" aria-live="polite" aria-label="Chat messages">
-<div 
-ref="messagesArea"
-class="messages-area"
-tabindex="0"
-role="log"
-aria-label="Message history"
-@keydown="handleMessagesKeydown"
->
-<div v-if="!chatData || chatData.messages.length === 0" class="empty-messages">
-<p>No messages yet. Start the conversation!</p>
-</div>
-<div 
-v-for="message in chatData?.messages || []" 
-:key="message.id"
-:class="['message', {
-'message-own': message.senderId === currentUser?.id,
-'message-peer': message.senderId !== currentUser?.id,
-'message-system': message.type === 'system'
-}]"
-role="article"
-:aria-label="getMessageAriaLabel(message)"
->
-<div class="message-content">
-{{ message.content }}
-</div>
-<div class="message-time">
-{{ formatMessageTime(message.timestamp) }}
-</div>
-</div>
-</div>
-</div>
-<form @submit.prevent="sendMessage" class="message-form">
-<div class="message-input-container">
-<textarea
-id="message-input"
-ref="messageInput"
-v-model="newMessage"
-placeholder="Type a message..."
-class="message-input"
-rows="1"
-:aria-describedby="newMessage.length > 500 ? 'char-count' : undefined"
-@keydown="handleInputKeydown"
-@input="adjustTextareaHeight"
-></textarea>
-<div 
-v-if="newMessage.length > 500" 
-id="char-count" 
-class="char-count"
-:class="{ 'char-limit-exceeded': newMessage.length > 1000 }"
-aria-live="polite"
->
-{{ newMessage.length }}/1000
-</div>
-</div>
-<button 
-type="submit"
-class="send-btn"
-:disabled="!newMessage.trim() || newMessage.length > 1000"
-:aria-label="newMessage.trim() ? 'Send message' : 'Enter a message to send'"
->
-Send
-</button>
-</form>
-<div 
-v-if="callState.isActive && callState.peerId !== peerId"
-class="call-overlay-indicator"
->
-<button 
-@click="goToCall"
-class="call-indicator-btn"
-aria-label="Return to active call"
->
-<span class="call-indicator-icon">📞</span>
-<span class="call-indicator-text">
-Call with {{ callState.peerName }} - Click to return
-</span>
-</button>
-</div>
-<div v-if="showShareWidget" class="share-widget" ref="shareWidget" role="toolbar" aria-label="Share Widget">
-<h2 class="share-title">Share Chat Link</h2>
-<p class="share-description">Share this link with others to start chatting:</p>
-<div class="share-link-container">
-<input 
-ref="shareLinkInput"
-:value="shareLink"
-readonly
-class="share-link-input"
-aria-label="Chat share link"
-/>
-<button 
-@click="copyShareLink"
-class="copy-btn"
-:aria-label="linkCopied ? 'Link copied!' : 'Copy link to clipboard'"
->
-{{ linkCopied ? "✓" : "📋" }}
-</button>
-</div>
-<div class="share-actions">
-<button @click="hideShareWidget" class="btn btn-secondary">
-Close
-</button>
-</div>
-</div>
-<div aria-live="assertive" class="sr-only">
-{{ announcement }}
-</div>
-</div>
+  <div class="chat-screen">
+    <!-- Header -->
+    <header class="chat-header">
+      <button class="back-btn" @click="goBack" aria-label="Back to dashboard">←</button>
+
+      <button
+        class="peer-info-btn"
+        @click="router.push(`/profile/${peerId}`)"
+        aria-label="View profile"
+      >
+        <div class="peer-avatar">
+          <img v-if="peerPhoto" :src="peerPhoto" :alt="peerName" />
+          <span v-else>{{ peerName.charAt(0).toUpperCase() }}</span>
+        </div>
+        <div class="peer-meta">
+          <span class="peer-name">{{ peerName }}</span>
+          <span class="peer-status">{{ peerOnline ? 'Online' : lastSeenText }}</span>
+        </div>
+      </button>
+
+      <div class="header-actions">
+        <button
+          class="header-btn"
+          @click="startCall(false)"
+          :disabled="isCallActive"
+          aria-label="Voice call"
+          title="Voice call"
+        >📞</button>
+        <button
+          class="header-btn"
+          @click="startCall(true)"
+          :disabled="isCallActive"
+          aria-label="Video call"
+          title="Video call"
+        >📹</button>
+        <button
+          class="header-btn"
+          @click="showMenu = !showMenu"
+          aria-label="More options"
+        >⋮</button>
+      </div>
+
+      <!-- Context Menu -->
+      <div v-if="showMenu" class="context-menu" ref="menuRef">
+        <button @click="viewProfile">View Profile</button>
+        <button v-if="isPeerBlockable" @click="confirmBlockPeer">Block User</button>
+        <button @click="clearChat" class="danger-item">Clear Chat</button>
+      </div>
+    </header>
+
+    <!-- Messages -->
+    <div
+      ref="messagesEl"
+      class="messages-area"
+      role="log"
+      aria-live="polite"
+      aria-label="Chat messages"
+    >
+      <div v-if="messages.length === 0" class="no-messages">
+        <div class="wave">👋</div>
+        <p>Say hello to {{ peerName }}!</p>
+      </div>
+
+      <template v-for="(msg, i) in messages" :key="msg.id">
+        <!-- Date divider -->
+        <div
+          v-if="showDateDivider(msg, messages[i-1])"
+          class="date-divider"
+        >{{ formatDateDivider(msg.timestamp?.toMillis()) }}</div>
+
+        <div
+          :class="['message-wrap', msg.senderId === myUid ? 'own' : 'peer']"
+          role="article"
+          :aria-label="getMessageAriaLabel(msg)"
+        >
+          <div :class="['bubble', { deleted: msg.deleted }]">
+            <span class="msg-text">{{ msg.content }}</span>
+            <div class="msg-meta">
+              <span class="msg-time">{{ formatMsgTime(msg.timestamp?.toMillis()) }}</span>
+              <span v-if="msg.senderId === myUid && !msg.deleted" class="read-indicator">
+                {{ msg.readBy.length > 1 ? '✓✓' : '✓' }}
+              </span>
+            </div>
+          </div>
+          <button
+            v-if="msg.senderId === myUid && !msg.deleted"
+            class="delete-msg-btn"
+            @click="deleteMsg(msg.id)"
+            aria-label="Delete message"
+          >🗑</button>
+        </div>
+      </template>
+
+      <div ref="bottomAnchor"></div>
+    </div>
+
+    <!-- Input -->
+    <form class="input-area" @submit.prevent="sendMsg">
+      <textarea
+        ref="inputEl"
+        v-model="newMsg"
+        placeholder="Type a message..."
+        class="msg-input"
+        :maxlength="2000"
+        @keydown="handleInputKey"
+        @input="autoResize"
+        rows="1"
+        aria-label="Message input"
+      ></textarea>
+      <div class="char-hint" v-if="newMsg.length > 1800">{{ 2000 - newMsg.length }}</div>
+      <button
+        type="submit"
+        class="send-btn"
+        :disabled="!newMsg.trim()"
+        aria-label="Send message"
+      >
+        <span>↑</span>
+      </button>
+    </form>
+
+    <!-- Block modal -->
+    <div v-if="showBlockModal" class="modal-overlay" @click.self="showBlockModal = false">
+      <div class="modal">
+        <h2>Block {{ peerName }}?</h2>
+        <p>They won't be able to send you messages or call you.</p>
+        <div class="modal-actions">
+          <button class="modal-cancel" @click="showBlockModal = false">Cancel</button>
+          <button class="modal-confirm" @click="doBlockPeer">Block</button>
+        </div>
+      </div>
+    </div>
+
+    <div aria-live="assertive" class="sr-only">{{ announcement }}</div>
+  </div>
 </template>
+
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { useAppStore } from "../stores/app";
-import { usePeerStore } from "../stores/peer";
-import type { Message } from "../types";
-const route = useRoute();
-const router = useRouter();
-const appStore = useAppStore();
-const peerStore = usePeerStore();
-const peerId = ref<string>(route.params.id as string);
-const newMessage = ref("");
-const announcement = ref("");
-const showShareWidget = ref(false);
-const linkCopied = ref(false);
-const messageInput = ref<HTMLTextAreaElement>();
-const messagesArea = ref<HTMLElement>();
-const shareWidget = ref<HTMLElement>();
-const shareLinkInput = ref<HTMLInputElement>();
-const currentUser = computed(() => appStore.currentUser);
-const chatData = computed(() => appStore.activeChatData);
-const callState = computed(() => appStore.callState);
-const isCallInProgress = computed(() => callState.value.isActive || callState.value.isIncoming);
-const shareLink = computed(() => {
-return `${window.location.origin}/chat/${peerId.value}`;
-});
-watch(showShareWidget, async (show) => {
-if (show) {
-await nextTick();
-shareLinkInput.value?.focus();
-shareLinkInput.value?.select();
-}
-});
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAppStore } from '../stores/app'
+import { usePeerStore } from '../stores/peer'
+import {
+  auth, db,
+  sendMessage as fbSendMessage,
+  markMessagesRead,
+  deleteMessage,
+  listenToChatMessages,
+  listenToUserPresence,
+  blockUser,
+  getUserProfile
+} from '../services/firebase'
+import type { Message } from '../services/firebase'
+import { doc, getDoc } from 'firebase/firestore'
+
+const route = useRoute()
+const router = useRouter()
+const appStore = useAppStore()
+const peerStore = usePeerStore()
+
+const chatId = ref(route.params.chatId as string)
+const messages = ref<(Message & { id: string })[]>([])
+const newMsg = ref('')
+const announcement = ref('')
+const showMenu = ref(false)
+const showBlockModal = ref(false)
+const peerOnline = ref(false)
+const peerLastSeen = ref<Date | null>(null)
+const isPeerBlockable = ref(true)
+
+const messagesEl = ref<HTMLElement>()
+const bottomAnchor = ref<HTMLElement>()
+const inputEl = ref<HTMLTextAreaElement>()
+const menuRef = ref<HTMLElement>()
+
+const myUid = computed(() => auth.currentUser?.uid || '')
+const chatData = computed(() => appStore.chats.find(c => c.id === chatId.value))
+const peerId = computed(() => chatData.value?.participants.find(uid => uid !== myUid.value) || '')
+const peerName = computed(() => chatData.value?.participantNames[peerId.value] || 'Unknown')
+const peerPhoto = computed(() => chatData.value?.participantPhotos?.[peerId.value] || null)
+const isCallActive = computed(() => appStore.callState.isActive || appStore.callState.isIncoming)
+
+const lastSeenText = computed(() => {
+  if (!peerLastSeen.value) return 'Offline'
+  const diff = Date.now() - peerLastSeen.value.getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Last seen just now'
+  if (mins < 60) return `Last seen ${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `Last seen ${hrs}h ago`
+  return `Last seen ${Math.floor(hrs / 24)}d ago`
+})
+
+let unsubMessages: (() => void) | null = null
+let unsubPresence: (() => void) | null = null
+
 onMounted(async () => {
-appStore.setActiveChat(peerId.value);
-await nextTick();
-messageInput.value?.focus();
-scrollToBottom();
-const peerName = chatData.value?.peerName || peerId.value;
-announcement.value = `Chat with ${peerName} opened. ${chatData.value?.messages.length || 0} messages in history.`;
-});
-watch(() => chatData.value?.messages.length, (newLength, oldLength) => {
-if (newLength && oldLength && newLength > oldLength) {
-nextTick(() => {
-scrollToBottom();
-const lastMessage = chatData.value?.messages[chatData.value.messages.length - 1];
-if (lastMessage && lastMessage.senderId !== currentUser.value?.id) {
-announcement.value = `New message from ${chatData.value?.peerName}: ${lastMessage.content}`;
+  appStore.setActiveChatId(chatId.value)
+
+  // Subscribe to messages
+  unsubMessages = listenToChatMessages(chatId.value, (msgs) => {
+    messages.value = msgs
+    nextTick(() => scrollToBottom())
+
+    // Mark as read
+    if (myUid.value) {
+      markMessagesRead(chatId.value, myUid.value)
+    }
+  })
+
+  // Subscribe to peer presence
+  if (peerId.value) {
+    unsubPresence = listenToUserPresence(peerId.value, (data) => {
+      peerOnline.value = !!data.isOnline
+      if (data.lastSeen) {
+        peerLastSeen.value = data.lastSeen.toDate()
+      }
+    })
+
+    // Check blockable
+    const peerProfile = await getUserProfile(peerId.value)
+    if (peerProfile) isPeerBlockable.value = peerProfile.blockable ?? true
+  }
+
+  inputEl.value?.focus()
+
+  // Close menu on click outside
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  unsubMessages?.()
+  unsubPresence?.()
+  appStore.setActiveChatId(null)
+  document.removeEventListener('click', handleClickOutside)
+})
+
+function handleClickOutside(e: MouseEvent) {
+  if (showMenu.value && menuRef.value && !menuRef.value.contains(e.target as Node)) {
+    showMenu.value = false
+  }
 }
-});
+
+async function sendMsg() {
+  if (!newMsg.value.trim() || !myUid.value) return
+  const content = newMsg.value.trim()
+  newMsg.value = ''
+  autoResize()
+  try {
+    await fbSendMessage(chatId.value, myUid.value, content)
+  } catch {
+    appStore.addNotification('Failed to send message', 'error')
+    newMsg.value = content
+  }
 }
-});
-function goBack() {
-appStore.setActiveChat(null);
-router.push("/dashboard");
+
+function handleInputKey(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendMsg()
+  }
 }
-function sendMessage() {
-if (!newMessage.value.trim() || newMessage.value.length > 1000) return;
-const message = newMessage.value.trim();
-peerStore.sendMessage(peerId.value, message);
-announcement.value = `Message sent: ${message}`;
-newMessage.value = "";
-nextTick(() => {
-adjustTextareaHeight();
-scrollToBottom();
-});
+
+function autoResize() {
+  if (!inputEl.value) return
+  inputEl.value.style.height = 'auto'
+  inputEl.value.style.height = Math.min(inputEl.value.scrollHeight, 120) + 'px'
 }
-function startVoiceCall() {
-if (isCallInProgress.value) {
-announcement.value = "Cannot start call - another call is in progress";
-return;
-}
-announcement.value = "Starting voice call...";
-peerStore.startCall(peerId.value, false);
-router.push(`/call/${peerId.value}`);
-}
-function startVideoCall() {
-if (isCallInProgress.value) {
-announcement.value = "Cannot start call - another call is in progress";
-return;
-}
-announcement.value = "Starting video call...";
-peerStore.startCall(peerId.value, true);
-router.push(`/call/${peerId.value}`);
-}
-function goToCall() {
-router.push(`/call/${callState.value.peerId}`);
-}
-function shareChat() {
-showShareWidget.value = true;
-announcement.value = "Share widget opened";
-}
-function hideShareWidget() {
-showShareWidget.value = false;
-linkCopied.value = false;
-messageInput.value?.focus();
-}
-async function copyShareLink() {
-try {
-await navigator.clipboard.writeText(shareLink.value);
-linkCopied.value = true;
-announcement.value = "Chat link copied to clipboard";
-setTimeout(() => {
-linkCopied.value = false;
-}, 2000);
-} catch (error) {
-shareLinkInput.value?.select();
-document.execCommand("copy");
-linkCopied.value = true;
-announcement.value = "Chat link copied to clipboard";
-setTimeout(() => {
-linkCopied.value = false;
-}, 2000);
-}
-}
-function handleInputKeydown(event: KeyboardEvent) {
-if (event.key === "Enter" && !event.shiftKey) {
-event.preventDefault();
-sendMessage();
-}
-}
-function handleMessagesKeydown(event: KeyboardEvent) {
-if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-event.preventDefault();
-}
-}
-function adjustTextareaHeight() {
-if (messageInput.value) {
-messageInput.value.style.height = "auto";
-const scrollHeight = messageInput.value.scrollHeight;
-const maxHeight = 120;
-messageInput.value.style.height = Math.min(scrollHeight, maxHeight) + "px";
-}
-}
+
 function scrollToBottom() {
-if (messagesArea.value) {
-messagesArea.value.scrollTop = messagesArea.value.scrollHeight;
+  bottomAnchor.value?.scrollIntoView({ behavior: 'smooth' })
 }
+
+function showDateDivider(msg: Message & { id: string }, prev?: Message & { id: string }): boolean {
+  if (!prev) return true
+  const d1 = msg.timestamp?.toDate()
+  const d2 = prev.timestamp?.toDate()
+  if (!d1 || !d2) return false
+  return d1.toDateString() !== d2.toDateString()
 }
-function getMessageAriaLabel(message: Message): string {
-const isOwn = message.senderId === currentUser.value?.id;
-const sender = isOwn ? "You" : (chatData.value?.peerName || "Peer");
-const time = formatMessageTime(message.timestamp);
-return `${sender} at ${time}: ${message.content}`;
+
+function formatDateDivider(ts?: number): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const now = new Date()
+  if (d.toDateString() === now.toDateString()) return 'Today'
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  return d.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })
 }
-function formatMessageTime(timestamp: number): string {
-const date = new Date(timestamp);
-const now = new Date();
-if (date.toDateString() === now.toDateString()) {
-return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-} else {
-return date.toLocaleString([], { 
-month: "short", 
-day: "numeric", 
-hour: "2-digit", 
-minute: "2-digit" 
-});
+
+function formatMsgTime(ts?: number): string {
+  if (!ts) return ''
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
+
+function getMessageAriaLabel(msg: Message & { id: string }): string {
+  const sender = msg.senderId === myUid.value ? 'You' : peerName.value
+  return `${sender}: ${msg.content}, ${formatMsgTime(msg.timestamp?.toMillis())}`
+}
+
+async function deleteMsg(msgId: string) {
+  try {
+    await deleteMessage(chatId.value, msgId)
+  } catch {
+    appStore.addNotification('Could not delete message', 'error')
+  }
+}
+
+async function startCall(withVideo: boolean) {
+  if (isCallActive.value) return
+  const snap = await getDoc(doc(db, 'peerIds', peerId.value))
+  if (!snap.exists()) {
+    appStore.addNotification(`${peerName.value} is not online`, 'warning')
+    return
+  }
+  const peerConnId = snap.data().peerId
+  appStore.updateCallState({ peerName: peerName.value, peerPhoto: peerPhoto.value })
+  await peerStore.startCall(peerId.value, peerConnId, withVideo)
+  router.push(`/call/${peerId.value}`)
+}
+
+function viewProfile() {
+  showMenu.value = false
+  router.push(`/profile/${peerId.value}`)
+}
+
+function confirmBlockPeer() {
+  showMenu.value = false
+  showBlockModal.value = true
+}
+
+async function doBlockPeer() {
+  if (!myUid.value) return
+  try {
+    await blockUser(myUid.value, peerId.value)
+    showBlockModal.value = false
+    appStore.addNotification(`${peerName.value} blocked`, 'success')
+    router.push('/dashboard')
+  } catch (e: any) {
+    appStore.addNotification(e.message || 'Could not block user', 'error')
+    showBlockModal.value = false
+  }
+}
+
+function clearChat() {
+  showMenu.value = false
+  // Could implement clear locally or via Firestore batch delete
+  appStore.addNotification('Chat cleared locally', 'info')
+}
+
+function goBack() {
+  appStore.setActiveChatId(null)
+  router.push('/dashboard')
 }
 </script>
+
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@700;800&display=swap');
+
+* { box-sizing: border-box; }
+
 .chat-screen {
-display: flex;
-flex-direction: column;
-height: 100vh;
-background: #f7fafc;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #070a14;
+  font-family: 'DM Sans', sans-serif;
+  color: #e2e8f0;
 }
 
 .chat-header {
-background: white;
-border-bottom: 1px solid #e2e8f0;
-padding: 1rem;
-display: flex;
-align-items: center;
-gap: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: rgba(10,12,24,0.9);
+  backdrop-filter: blur(20px);
+  position: relative;
 }
 
 .back-btn {
-background: none;
-border: 1px solid #e2e8f0;
-border-radius: 8px;
-padding: 0.5rem 1rem;
-cursor: pointer;
-font-weight: 500;
-color: #4a5568;
-transition: all 0.2s ease;
+  background: rgba(255,255,255,0.06);
+  border: none;
+  border-radius: 10px;
+  width: 38px; height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(255,255,255,0.7);
+  font-size: 1.1rem;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.back-btn:hover { background: rgba(255,255,255,0.1); }
+
+.peer-info-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  padding: 0;
+  min-width: 0;
 }
 
-.back-btn:hover {
-border-color: #cbd5e0;
-background: #f7fafc;
+.peer-avatar {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5c3bff40, #ff3b8c40);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #a78bfa;
+  overflow: hidden;
+  flex-shrink: 0;
 }
+.peer-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-.back-btn:focus {
-outline: 2px solid #667eea;
-outline-offset: 2px;
-}
-
-.peer-info {
-flex: 1;
-min-width: 0;
-}
-
+.peer-meta { display: flex; flex-direction: column; min-width: 0; }
 .peer-name {
-font-size: 1.25rem;
-font-weight: 600;
-color: #2d3748;
-margin: 0 0 0.25rem 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.peer-status {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.35);
 }
 
-.peer-id {
-font-size: 0.875rem;
-color: #718096;
-font-family: monospace;
-}
+.header-actions { display: flex; gap: 0.375rem; }
 
-.call-actions {
-display: flex;
-gap: 0.5rem;
+.header-btn {
+  background: rgba(255,255,255,0.05);
+  border: none;
+  border-radius: 10px;
+  width: 38px; height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.2s;
 }
+.header-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+.header-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.share-btn,
-.call-btn {
-width: 44px;
-height: 44px;
-border: 1px solid #e2e8f0;
-background: white;
-border-radius: 8px;
-cursor: pointer;
-display: flex;
-align-items: center;
-justify-content: center;
-font-size: 1.25rem;
-transition: all 0.2s ease;
+.context-menu {
+  position: absolute;
+  top: 100%;
+  right: 0.5rem;
+  background: #0f1220;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  z-index: 100;
+  min-width: 160px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
-
-.share-btn:hover {
-border-color: #667eea;
-background: #ebf4ff;
+.context-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  transition: background 0.15s;
 }
+.context-menu button:hover { background: rgba(255,255,255,0.05); color: #fff; }
+.context-menu .danger-item { color: #ff3b8c; }
+.context-menu .danger-item:hover { background: rgba(255,59,140,0.1); }
 
-.call-btn:hover:not(:disabled) {
-transform: translateY(-1px);
-}
-
-.call-btn:disabled {
-opacity: 0.5;
-cursor: not-allowed;
-transform: none;
-}
-
-.call-btn:focus,
-.share-btn:focus {
-outline: 2px solid #667eea;
-outline-offset: 2px;
-}
-
-.voice-call:hover:not(:disabled) {
-border-color: #48bb78;
-background: #f0fff4;
-}
-
-.video-call:hover:not(:disabled) {
-border-color: #4299e1;
-background: #ebf8ff;
-}
-
-.messages-container {
-flex: 1;
-overflow: hidden;
-display: flex;
-flex-direction: column;
-}
-
+/* Messages */
 .messages-area {
-flex: 1;
-overflow-y: auto;
-padding: 1rem;
-display: flex;
-flex-direction: column;
-gap: 1rem;
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  scroll-behavior: smooth;
 }
 
-.messages-area:focus {
-outline: 2px solid #667eea;
-outline-offset: -2px;
+.no-messages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 0.75rem;
+  color: rgba(255,255,255,0.3);
+}
+.wave { font-size: 2.5rem; animation: wave 2s ease-in-out infinite; }
+@keyframes wave {
+  0%,100% { transform: rotate(0); }
+  25% { transform: rotate(-15deg); }
+  75% { transform: rotate(15deg); }
+}
+.no-messages p { font-size: 0.9rem; margin: 0; }
+
+.date-divider {
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.25);
+  margin: 0.75rem 0;
+  position: relative;
+}
+.date-divider::before, .date-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 30%;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+}
+.date-divider::before { left: 0; }
+.date-divider::after { right: 0; }
+
+.message-wrap {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  max-width: 75%;
+}
+.message-wrap.own {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+.message-wrap.peer {
+  align-self: flex-start;
 }
 
-.empty-messages {
-display: flex;
-align-items: center;
-justify-content: center;
-height: 100%;
-color: #718096;
-font-style: italic;
+.bubble {
+  background: rgba(255,255,255,0.07);
+  border-radius: 18px;
+  padding: 0.625rem 1rem;
+  display: inline-block;
+  max-width: 100%;
+}
+.message-wrap.own .bubble {
+  background: linear-gradient(135deg, #5c3bff, #7c3bff);
+  border-bottom-right-radius: 4px;
+}
+.message-wrap.peer .bubble {
+  border-bottom-left-radius: 4px;
+}
+.bubble.deleted {
+  background: transparent !important;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.bubble.deleted .msg-text { color: rgba(255,255,255,0.3); font-style: italic; }
+
+.msg-text {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #e2e8f0;
+  display: block;
 }
 
-.message {
-display: flex;
-flex-direction: column;
-max-width: 70%;
-word-wrap: break-word;
+.msg-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
 }
 
-.message-own {
-align-self: flex-end;
-align-items: flex-end;
+.msg-time {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.3);
 }
 
-.message-peer {
-align-self: flex-start;
-align-items: flex-start;
+.read-indicator {
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.5);
 }
 
-.message-system {
-align-self: center;
-max-width: 90%;
-text-align: center;
+.delete-msg-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+  padding: 4px;
+  border-radius: 6px;
+}
+.message-wrap:hover .delete-msg-btn { opacity: 0.5; }
+.delete-msg-btn:hover { opacity: 1 !important; background: rgba(255,59,140,0.1); }
+
+/* Input */
+.input-area {
+  padding: 0.875rem 1rem;
+  background: rgba(10,12,24,0.9);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  position: relative;
 }
 
-.message-content {
-background: white;
-padding: 0.75rem 1rem;
-border-radius: 18px;
-box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-white-space: pre-wrap;
-line-height: 1.4;
+.msg-input {
+  flex: 1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
+  padding: 0.75rem 1rem;
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: none;
+  min-height: 44px;
+  max-height: 120px;
+  overflow-y: auto;
+  transition: border-color 0.2s;
+  line-height: 1.45;
 }
-
-.message-own .message-content {
-background: #667eea;
-color: white;
-border-bottom-right-radius: 6px;
+.msg-input:focus {
+  outline: none;
+  border-color: rgba(92,59,255,0.4);
+  background: rgba(92,59,255,0.05);
 }
+.msg-input::placeholder { color: rgba(255,255,255,0.2); }
 
-.message-peer .message-content {
-background: white;
-color: #2d3748;
-border-bottom-left-radius: 6px;
-}
-
-.message-system .message-content {
-background: #edf2f7;
-color: #4a5568;
-border-radius: 12px;
-font-style: italic;
-font-size: 0.875rem;
-}
-
-.message-time {
-font-size: 0.75rem;
-color: #a0aec0;
-margin-top: 0.25rem;
-padding: 0 0.5rem;
-}
-
-.message-form {
-background: white;
-border-top: 1px solid #e2e8f0;
-padding: 1rem;
-display: flex;
-gap: 1rem;
-align-items: flex-end;
-}
-
-.message-input-container {
-flex: 1;
-position: relative;
-}
-
-.message-input {
-width: 100%;
-min-height: 44px;
-max-height: 120px;
-padding: 0.75rem 1rem;
-border: 2px solid #e2e8f0;
-border-radius: 22px;
-font-size: 1rem;
-font-family: inherit;
-resize: none;
-transition: all 0.2s ease;
-line-height: 1.4;
-}
-
-.message-input:focus {
-outline: none;
-border-color: #667eea;
-box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-.char-count {
-position: absolute;
-right: 1rem;
-bottom: -1.5rem;
-font-size: 0.75rem;
-color: #718096;
-}
-
-.char-limit-exceeded {
-color: #e53e3e;
-font-weight: 600;
+.char-hint {
+  position: absolute;
+  bottom: 100%;
+  right: 4.5rem;
+  font-size: 0.7rem;
+  color: rgba(255,100,100,0.7);
+  background: rgba(0,0,0,0.5);
+  padding: 2px 6px;
+  border-radius: 6px;
 }
 
 .send-btn {
-background: #667eea;
-color: white;
-border: none;
-border-radius: 22px;
-padding: 0.75rem 1.5rem;
-font-size: 1rem;
-font-weight: 600;
-cursor: pointer;
-transition: all 0.2s ease;
-white-space: nowrap;
+  width: 44px; height: 44px;
+  background: linear-gradient(135deg, #5c3bff, #7c3bff);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
 }
+.send-btn:hover:not(:disabled) { transform: scale(1.05); opacity: 0.9; }
+.send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.send-btn:hover:not(:disabled) {
-background: #5a67d8;
-transform: translateY(-1px);
+/* Modal */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1.5rem;
 }
-
-.send-btn:disabled {
-opacity: 0.5;
-cursor: not-allowed;
-transform: none;
+.modal {
+  background: #0f1220;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 2rem;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
 }
-
-.send-btn:focus {
-outline: none;
-box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
+.modal h2 { font-family: 'Syne', sans-serif; color: #fff; margin: 0 0 0.75rem; font-size: 1.2rem; }
+.modal p { color: rgba(255,255,255,0.5); font-size: 0.875rem; margin: 0 0 1.5rem; }
+.modal-actions { display: flex; gap: 0.75rem; justify-content: center; }
+.modal-cancel {
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 0.625rem 1.5rem;
+  color: rgba(255,255,255,0.7); cursor: pointer; font-family: inherit; font-size: 0.9rem;
 }
-
-.call-overlay-indicator {
-position: fixed;
-top: 1rem;
-right: 1rem;
-z-index: 1000;
-}
-
-.call-indicator-btn {
-background: #e53e3e;
-color: white;
-border: none;
-border-radius: 8px;
-padding: 0.75rem 1rem;
-cursor: pointer;
-display: flex;
-align-items: center;
-gap: 0.5rem;
-font-weight: 600;
-box-shadow: 0 4px 12px rgba(229, 62, 62, 0.3);
-animation: pulse 2s infinite;
-}
-
-.call-indicator-btn:hover {
-background: #c53030;
-}
-
-.call-indicator-btn:focus {
-outline: 2px solid white;
-outline-offset: 2px;
-}
-
-@keyframes pulse {
-0%, 100% { opacity: 1; }
-50% { opacity: 0.8; }
-}
-
-.share-widget {
-position: fixed;
-top: 50%;
-left: 50%;
-transform: translate(-50%, -50%);
-background: white;
-border: 2px solid #e2e8f0;
-border-radius: 12px;
-padding: 2rem;
-max-width: 500px;
-width: 90%;
-box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-z-index: 1000;
-}
-
-.share-title {
-font-size: 1.5rem;
-font-weight: 600;
-margin: 0 0 0.5rem 0;
-color: #2d3748;
-}
-
-.share-description {
-color: #718096;
-margin: 0 0 1.5rem 0;
-}
-
-.share-link-container {
-display: flex;
-gap: 0.5rem;
-margin-bottom: 1.5rem;
-}
-
-.share-link-input {
-flex: 1;
-padding: 0.75rem;
-border: 2px solid #e2e8f0;
-border-radius: 8px;
-font-family: monospace;
-font-size: 0.875rem;
-background: #f7fafc;
-}
-
-.share-link-input:focus {
-outline: none;
-border-color: #667eea;
-}
-
-.copy-btn {
-background: #667eea;
-color: white;
-border: none;
-border-radius: 8px;
-padding: 0.75rem 1rem;
-cursor: pointer;
-font-size: 1rem;
-transition: all 0.2s ease;
-}
-
-.copy-btn:hover {
-background: #5a67d8;
-}
-
-.copy-btn:focus {
-outline: 2px solid #667eea;
-outline-offset: 2px;
-}
-
-.share-actions {
-display: flex;
-justify-content: flex-end;
-}
-
-.btn {
-padding: 0.75rem 1rem;
-border: none;
-border-radius: 8px;
-font-weight: 600;
-cursor: pointer;
-transition: all 0.2s ease;
-}
-
-.btn-secondary {
-background: #e2e8f0;
-color: #4a5568;
-}
-
-.btn-secondary:hover {
-background: #cbd5e0;
-}
-
-.btn:focus {
-outline: 2px solid #667eea;
-outline-offset: 2px;
+.modal-confirm {
+  background: linear-gradient(135deg, #ff3b5c, #ff3b8c); border: none;
+  border-radius: 10px; padding: 0.625rem 1.5rem;
+  color: #fff; cursor: pointer; font-family: inherit; font-size: 0.9rem; font-weight: 600;
 }
 
 .sr-only {
-position: absolute;
-width: 1px;
-height: 1px;
-padding: 0;
-margin: -1px;
-overflow: hidden;
-clip: rect(0, 0, 0, 0);
-white-space: nowrap;
-border: 0;
-}
-
-@media (max-width: 640px) {
-.chat-header {
-padding: 1rem 0.5rem;
-}
-
-.message {
-max-width: 85%;
-}
-
-.message-form {
-padding: 1rem 0.5rem;
-}
-
-.messages-area {
-padding: 1rem 0.5rem;
-}
-
-.share-widget {
-width: 95%;
-padding: 1.5rem;
-}
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
 </style>

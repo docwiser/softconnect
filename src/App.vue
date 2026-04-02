@@ -1,209 +1,288 @@
 <template>
-<div id="app">
-<div 
-v-if="showCallIndicator"
-class="call-indicator-header"
->
-<button 
-@click="goToCall"
-class="header-call-btn"
-:aria-label="callLabel"
->
-<span class="call-indicator-icon">📞</span>
-<span class="call-indicator-text">
-{{ callState.isIncoming ? 'Incoming call from' : 'Call with' }} {{ callState.peerName }} - Click to return
-</span>
-</button>
-</div>
-<main id="main-content">
-<RouterView />
-</main>
-<footer class="app-footer">
-<p class="copyright">
-&copy;Copyright 2025 Soft connect; innovation and engineered by Susant Swain
-</p>
-</footer>
-<div v-if="notifications.length" class="notifications-container" aria-live="polite">
-<div 
-v-for="(notification, index) in notifications" 
-:key="index"
-class="notification"
-role="alert"
->
-{{ notification }}
-</div>
-</div>
-</div>
+  <div id="app">
+    <!-- Global incoming call banner (shows on any screen except /call) -->
+    <Transition name="call-banner">
+      <div
+        v-if="showCallBanner"
+        class="global-call-banner"
+        role="alert"
+        aria-live="assertive"
+      >
+        <div class="banner-pulse"></div>
+        <div class="banner-info">
+          <span class="banner-avatar">
+            <img v-if="callState.peerPhoto" :src="callState.peerPhoto" :alt="callState.peerName" />
+            <span v-else>{{ callState.peerName.charAt(0).toUpperCase() }}</span>
+          </span>
+          <div class="banner-text">
+            <strong>{{ callState.peerName }}</strong>
+            <span>{{ callState.isIncoming ? 'Incoming call' : 'Call in progress' }}</span>
+          </div>
+        </div>
+        <RouterLink :to="`/call/${callState.peerId}`" class="banner-return-btn">
+          {{ callState.isIncoming ? 'Answer' : 'Return' }}
+        </RouterLink>
+      </div>
+    </Transition>
+
+    <RouterView />
+
+    <!-- Toast Notifications -->
+    <div class="toast-stack" role="region" aria-label="Notifications" aria-live="polite">
+      <Transition
+        v-for="notif in notifications"
+        :key="notif.id"
+        name="toast"
+      >
+        <div :class="['toast', `toast-${notif.type}`]" role="status">
+          <span class="toast-icon">{{ toastIcon(notif.type) }}</span>
+          <span class="toast-msg">{{ notif.message }}</span>
+        </div>
+      </Transition>
+    </div>
+  </div>
 </template>
+
 <script setup lang="ts">
-import { computed } from "vue";
-import { RouterView, useRouter, useRoute } from "vue-router";
-import { useAppStore } from "./stores/app";
-const router = useRouter();
-const route = useRoute();
-const appStore = useAppStore();
-const notifications = computed(() => appStore.notifications);
-const callState = computed(() => appStore.callState);
-const showCallIndicator = computed(() => {
-const isCallActive = callState.value.isActive || callState.value.isIncoming;
-const isNotOnCallScreen = route.name !== "call";
-return isCallActive && isNotOnCallScreen;
-});
-const callLabel = computed(() => {
-return `${callState.value.isIncoming ? "Incoming call from " : "On-going call with "}${callState.value.peerName}. tap to return to the call screen`;
-});
-function goToCall() {
-router.push(`/call/${callState.value.peerId}`);
+import { computed, onMounted } from 'vue'
+import { RouterView, RouterLink, useRoute } from 'vue-router'
+import { useAppStore } from './stores/app'
+import { useAuth } from './composables/useAuth'
+
+const route = useRoute()
+const appStore = useAppStore()
+const { init } = useAuth()
+
+const notifications = computed(() => appStore.notifications)
+const callState = computed(() => appStore.callState)
+
+const showCallBanner = computed(() => {
+  const hasCall = callState.value.isActive || callState.value.isIncoming
+  const notOnCallScreen = route.name !== 'call'
+  return hasCall && notOnCallScreen
+})
+
+function toastIcon(type: string): string {
+  const icons: Record<string, string> = {
+    success: '✓',
+    error: '✕',
+    warning: '⚠',
+    info: 'ℹ'
+  }
+  return icons[type] || 'ℹ'
 }
+
+onMounted(() => {
+  init()
+})
 </script>
+
+<style>
+/* ── Global Reset ────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+}
+
+body {
+  background: #060812;
+  color: #e2e8f0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid #5c3bff;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button, input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+
 <style scoped>
 #app {
-position: relative;
-min-height: 100vh;
-display: flex;
-flex-direction: column;
+  position: relative;
+  min-height: 100vh;
 }
 
-.skip-link {
-position: absolute;
-top: -40px;
-left: 6px;
-background: #667eea;
-color: white;
-padding: 8px;
-text-decoration: none;
-border-radius: 4px;
-z-index: 10000;
-font-weight: 600;
+/* ── Call Banner ─────────────────────────────────────────────────────────────── */
+.global-call-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  background: rgba(10, 8, 30, 0.96);
+  border-bottom: 1px solid rgba(92,59,255,0.4);
+  backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  z-index: 9999;
+  box-shadow: 0 2px 20px rgba(92,59,255,0.2);
 }
 
-.skip-link:focus {
-top: 6px;
+.banner-pulse {
+  width: 8px; height: 8px;
+  background: #5c3bff;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: bannerPulse 1.5s ease-in-out infinite;
+}
+@keyframes bannerPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(92,59,255,0.5); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(92,59,255,0); }
 }
 
-.call-indicator-header {
-background: #e53e3e;
-color: white;
-padding: 0.5rem;
-text-align: center;
-position: sticky;
-top: 0;
-z-index: 1000;
-box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+.banner-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
 }
 
-.header-call-btn {
-background: none;
-border: none;
-color: white;
-cursor: pointer;
-display: flex;
-align-items: center;
-justify-content: center;
-gap: 0.5rem;
-font-weight: 600;
-width: 100%;
-padding: 0.5rem;
-border-radius: 4px;
-transition: all 0.2s ease;
+.banner-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5c3bff, #ff3b8c);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.banner-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.banner-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.banner-text strong {
+  font-size: 0.9rem;
+  color: #fff;
+  font-weight: 600;
+}
+.banner-text span {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.45);
 }
 
-.header-call-btn:hover {
-background: rgba(255, 255, 255, 0.1);
+.banner-return-btn {
+  background: linear-gradient(135deg, #5c3bff, #7c3bff);
+  color: #fff;
+  padding: 0.5rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.banner-return-btn:hover { opacity: 0.85; }
+
+.call-banner-enter-active, .call-banner-leave-active {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.call-banner-enter-from, .call-banner-leave-to {
+  transform: translateY(-100%);
+  opacity: 0;
 }
 
-.header-call-btn:focus {
-outline: 2px solid white;
-outline-offset: 2px;
+/* ── Toast Stack ─────────────────────────────────────────────────────────────── */
+.toast-stack {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 10000;
+  pointer-events: none;
+  max-width: 420px;
+  width: 90vw;
 }
 
-.call-indicator-icon {
-font-size: 1.25rem;
-animation: pulse 2s infinite;
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.25rem;
+  border-radius: 12px;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  font-size: 0.875rem;
+  font-weight: 500;
+  pointer-events: auto;
 }
 
-@keyframes pulse {
-0%, 100% { opacity: 1; }
-50% { opacity: 0.7; }
+.toast-info {
+  background: rgba(92, 59, 255, 0.85);
+  border: 1px solid rgba(92,59,255,0.6);
+  color: #fff;
+}
+.toast-success {
+  background: rgba(20, 83, 45, 0.9);
+  border: 1px solid rgba(52,211,153,0.4);
+  color: #86efac;
+}
+.toast-error {
+  background: rgba(127, 29, 29, 0.9);
+  border: 1px solid rgba(255,59,92,0.4);
+  color: #fca5a5;
+}
+.toast-warning {
+  background: rgba(120, 80, 0, 0.9);
+  border: 1px solid rgba(251,191,36,0.4);
+  color: #fde68a;
 }
 
-main {
-flex: 1;
+.toast-icon {
+  font-size: 1rem;
+  font-weight: 700;
+  flex-shrink: 0;
 }
+.toast-msg { flex: 1; line-height: 1.4; }
 
-.app-footer {
-background: #f7fafc;
-border-top: 1px solid #e2e8f0;
-padding: 1rem;
-text-align: center;
-margin-top: auto;
+.toast-enter-active, .toast-leave-active {
+  transition: all 0.3s ease;
 }
-
-.copyright {
-color: #718096;
-font-size: 0.875rem;
-margin: 0;
+.toast-enter-from {
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
 }
-
-.notifications-container {
-position: fixed;
-top: 1rem;
-left: 50%;
-transform: translateX(-50%);
-z-index: 10000;
-display: flex;
-flex-direction: column;
-gap: 0.5rem;
-max-width: 400px;
-width: 90%;
-pointer-events: none;
-}
-
-.notification {
-background: rgba(45, 55, 72, 0.95);
-color: white;
-padding: 1rem;
-border-radius: 8px;
-backdrop-filter: blur(10px);
-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-animation: slideIn 0.3s ease-out;
-pointer-events: auto;
-}
-
-@keyframes slideIn {
-from {
-opacity: 0;
-transform: translateY(-20px);
-}
-to {
-opacity: 1;
-transform: translateY(0);
-}
-}
-
-@media (max-width: 640px) {
-.notifications-container {
-width: 95%;
-}
-
-.notification {
-padding: 0.75rem;
-font-size: 0.875rem;
-}
-
-.call-indicator-text {
-font-size: 0.875rem;
-}
-}
-
-@media (prefers-color-scheme: dark) {
-.app-footer {
-background: #2d3748;
-border-color: #4a5568;
-}
-
-.copyright {
-color: #a0aec0;
-}
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
 }
 </style>

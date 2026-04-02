@@ -1,646 +1,617 @@
 <template>
-<div class="dashboard">
-<header class="dashboard-header">
-<div class="header-content">
-<h1 class="dashboard-title">Soft connect</h1>
-<div class="user-info">
-<span class="user-name">{{ currentUser?.name }}</span>
-<span class="user-id" :aria-label="`Your ID is ${currentUser?.id}`">
-ID: {{ currentUser?.id }}
-</span>
-</div>
-</div>
-</header>
-<div class="dashboard-content">
-<div class="connect-section" role="region" aria-labelledby="connect-title">
-<h2 id="connect-title" class="section-title">Connect to Someone</h2>
-<form @submit.prevent="handleConnect" class="connect-form">
-<div class="form-group">
-<label for="peer-id" class="form-label">Enter 4-digit ID:</label>
-<input 
-id="peer-id"
-ref="connectInput"
-v-model="connectId" 
-type="text" 
-pattern="[0-9]{4}"
-maxlength="4"
-class="form-input"
-placeholder="e.g., 1234"
-:aria-describedby="connectError ? 'connect-error' : 'connect-help'"
-:aria-invalid="!!connectError"
-@input="clearConnectError"
-/>
-<div id="connect-help" class="help-text">
-Enter the 4-digit ID shared by your contact
-</div>
-<div 
-v-if="connectError" 
-id="connect-error" 
-class="error-message" 
-role="alert"
-aria-live="polite"
->
-{{ connectError }}
-</div>
-</div>
-<button 
-type="submit" 
-class="btn btn-primary"
-:disabled="isConnecting || connectId.length !== 4"
->
-<span v-if="isConnecting">Connecting...</span>
-<span v-else>Connect</span>
-</button>
-</form>
-</div>
-<div class="chats-section" role="region" aria-labelledby="chats-title">
-<h2 id="chats-title" class="section-title">
-Your Chats
-<span v-if="sortedChats.length" class="chat-count">
-({{ sortedChats.length }})
-</span>
-</h2>
-<div v-if="sortedChats.length === 0" class="empty-state">
-<p>No chats yet. Connect to someone to start chatting!</p>
-</div>
-<div v-else class="chats-list" role="list">
-<div 
-v-for="chat in sortedChats" 
-:key="chat.peerId"
-class="chat-item"
-role="listitem"
->
-<button 
-@click="openChat(chat.peerId)"
-class="chat-button"
-:aria-describedby="`chat-${chat.peerId}-desc`"
->
-<div class="chat-avatar">
-{{ chat.peerName.charAt(0).toUpperCase() }}
-</div>
-<div class="chat-content">
-<div class="chat-header">
-<h3 class="chat-name">{{ chat.peerName }}</h3>
-<span class="chat-time">
-{{ formatTime(chat.lastMessage?.timestamp) }}
-</span>
-</div>
-<div class="chat-preview">
-<p class="chat-last-message">
-{{ getLastMessagePreview(chat) }}
-</p>
-<div 
-v-if="chat.unreadCount > 0" 
-class="unread-badge"
-:aria-label="`${chat.unreadCount} unread messages`"
->
-{{ chat.unreadCount }}
-</div>
-</div>
-</div>
-</button>
-<div class="chat-actions">
-<button 
-@click="startVoiceCall(chat.peerId)"
-class="action-btn voice-call-btn"
-:aria-label="`Start voice call with ${chat.peerName}`"
-title="Voice call"
->
-<span class="icon">📞</span>
-<span class="sr-only">Voice call</span>
-</button>
-<button 
-@click="startVideoCall(chat.peerId)"
-class="action-btn video-call-btn"
-:aria-label="`Start video call with ${chat.peerName}`"
-title="Video call"
->
-<span class="icon">📹</span>
-<span class="sr-only">Video call</span>
-</button>
-</div>
-<div 
-:id="`chat-${chat.peerId}-desc`" 
-class="sr-only"
->
-Chat with {{ chat.peerName }}, 
-{{ chat.unreadCount > 0 ? `${chat.unreadCount} unread messages, ` : "" }}
-last message: {{ getLastMessagePreview(chat) }},
-{{ formatTime(chat.lastMessage?.timestamp) }}
-</div>
-</div>
-</div>
-</div>
-</div>
-<div 
-v-if="callState.isActive && activeChat !== callState.peerId"
-class="call-overlay-indicator"
->
-<button 
-@click="goToCall"
-class="call-indicator-btn"
-aria-label="Return to active call"
->
-<span class="call-indicator-icon">📞</span>
-<span class="call-indicator-text">
-Call with {{ callState.peerName }} - Click to return
-</span>
-</button>
-</div>
-<div aria-live="polite" class="sr-only">
-{{ announcement }}
-</div>
-</div>
+  <div class="dashboard">
+    <!-- Sidebar -->
+    <aside class="sidebar" :class="{ open: sidebarOpen }">
+      <div class="sidebar-header">
+        <div class="app-brand">
+          <span class="brand-icon">◈</span>
+          <span class="brand-name">Soft Connect</span>
+        </div>
+        <button class="sidebar-close" @click="sidebarOpen = false" aria-label="Close menu">✕</button>
+      </div>
+
+      <nav class="sidebar-nav" role="navigation">
+        <button class="nav-item active" aria-current="page">
+          <span class="nav-icon">💬</span> Chats
+        </button>
+        <RouterLink class="nav-item" to="/new-chat">
+          <span class="nav-icon">✏️</span> New Chat
+        </RouterLink>
+        <RouterLink class="nav-item" to="/call-history">
+          <span class="nav-icon">📋</span> Call History
+        </RouterLink>
+        <RouterLink class="nav-item" :to="`/profile/${currentUser?.uid}`">
+          <span class="nav-icon">👤</span> My Profile
+        </RouterLink>
+        <RouterLink class="nav-item" to="/settings">
+          <span class="nav-icon">⚙️</span> Settings
+        </RouterLink>
+        <button class="nav-item logout-btn" @click="handleLogout">
+          <span class="nav-icon">🚪</span> Sign Out
+        </button>
+      </nav>
+
+      <!-- My Card -->
+      <div class="my-card">
+        <div class="my-avatar" @click="router.push(`/profile/${currentUser?.uid}`)">
+          <img v-if="profile?.photoURL" :src="profile.photoURL" :alt="profile.displayName" />
+          <span v-else>{{ profile?.displayName?.charAt(0)?.toUpperCase() }}</span>
+          <span class="online-dot"></span>
+        </div>
+        <div class="my-info">
+          <strong>{{ profile?.displayName }}</strong>
+          <span class="my-username">@{{ profile?.username }}</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Area -->
+    <main class="main-area">
+      <!-- Top Bar -->
+      <header class="topbar">
+        <button class="menu-btn" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle menu">☰</button>
+        <h1 class="page-title">Messages</h1>
+        <div class="topbar-actions">
+          <RouterLink to="/new-chat" class="new-chat-btn" aria-label="New chat">
+            <span>✏️</span>
+          </RouterLink>
+        </div>
+      </header>
+
+      <!-- Search Chats -->
+      <div class="search-bar-wrap">
+        <input
+          v-model="chatSearch"
+          type="search"
+          placeholder="Search conversations..."
+          class="search-input"
+          aria-label="Search chats"
+        />
+      </div>
+
+      <!-- Chats List -->
+      <div class="chats-list" role="list">
+        <div v-if="filteredChats.length === 0" class="empty-state">
+          <div class="empty-icon">💬</div>
+          <h2>No conversations yet</h2>
+          <p>Start chatting by searching for someone</p>
+          <RouterLink to="/new-chat" class="start-btn">Find Someone</RouterLink>
+        </div>
+
+        <button
+          v-for="chat in filteredChats"
+          :key="chat.id"
+          class="chat-item"
+          role="listitem"
+          @click="openChat(chat)"
+          :aria-label="getChatAriaLabel(chat)"
+        >
+          <div class="chat-avatar-wrap">
+            <div class="chat-avatar">
+              <img
+                v-if="getPeerPhoto(chat)"
+                :src="getPeerPhoto(chat)!"
+                :alt="getPeerName(chat)"
+              />
+              <span v-else>{{ getPeerName(chat).charAt(0).toUpperCase() }}</span>
+            </div>
+            <span v-if="isUserOnline(chat)" class="presence-dot"></span>
+          </div>
+
+          <div class="chat-body">
+            <div class="chat-top">
+              <span class="chat-name">{{ getPeerName(chat) }}</span>
+              <span class="chat-time">{{ formatTime(chat.lastMessage?.timestamp?.toMillis()) }}</span>
+            </div>
+            <div class="chat-bottom">
+              <span class="chat-preview">{{ getPreview(chat) }}</span>
+              <span v-if="getUnreadCount(chat) > 0" class="unread-badge">
+                {{ getUnreadCount(chat) > 99 ? '99+' : getUnreadCount(chat) }}
+              </span>
+            </div>
+          </div>
+        </button>
+      </div>
+    </main>
+
+    <!-- Active Call Bar -->
+    <div v-if="callState.isActive && !callState.isIncoming" class="active-call-bar">
+      <span class="call-pulse">🔴</span>
+      <span>Call with {{ callState.peerName }}</span>
+      <RouterLink :to="`/call/${callState.peerId}`" class="return-call-btn">Return</RouterLink>
+    </div>
+
+    <div aria-live="polite" class="sr-only">{{ announcement }}</div>
+  </div>
 </template>
+
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from "vue";
-import { useRouter } from "vue-router";
-import { useAppStore } from "../stores/app";
-import { usePeerStore } from "../stores/peer";
-import type { Chat } from "../types";
-const router = useRouter();
-const appStore = useAppStore();
-const peerStore = usePeerStore();
-const connectId = ref("");
-const isConnecting = ref(false);
-const connectError = ref("");
-const announcement = ref("");
-const connectInput = ref<HTMLInputElement>();
-const currentUser = computed(() => appStore.currentUser);
-const sortedChats = computed(() => appStore.sortedChats);
-const callState = computed(() => appStore.callState);
-const activeChat = computed(() => appStore.activeChat);
-onMounted(async () => {
-await nextTick();
-announcement.value = `Dashboard loaded. Welcome ${currentUser.value?.name}. Your ID is ${currentUser.value?.id}`;
-});
-async function handleConnect() {
-if (connectId.value.length !== 4) {
-connectError.value = "Please enter a 4-digit ID";
-announcement.value = "Error: Please enter a 4-digit ID";
-return;
+import { ref, computed } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
+import { useAppStore } from '../stores/app'
+import { logoutUser } from '../services/firebase'
+import { auth } from '../services/firebase'
+import type { Chat } from '../services/firebase'
+
+const router = useRouter()
+const appStore = useAppStore()
+
+const sidebarOpen = ref(false)
+const chatSearch = ref('')
+const announcement = ref('')
+
+const profile = computed(() => appStore.currentUserProfile)
+const currentUser = computed(() => auth.currentUser)
+const callState = computed(() => appStore.callState)
+
+const filteredChats = computed(() => {
+  const q = chatSearch.value.toLowerCase()
+  return appStore.sortedChats.filter(chat => {
+    if (!q) return true
+    const name = getPeerName(chat).toLowerCase()
+    const preview = getPreview(chat).toLowerCase()
+    return name.includes(q) || preview.includes(q)
+  })
+})
+
+function getPeerId(chat: Chat & { id: string }): string {
+  return chat.participants.find(uid => uid !== auth.currentUser?.uid) || ''
 }
-if (connectId.value === currentUser.value?.id) {
-connectError.value = "You cannot connect to yourself";
-announcement.value = "Error: You cannot connect to yourself";
-return;
+function getPeerName(chat: Chat & { id: string }): string {
+  const peerId = getPeerId(chat)
+  return chat.participantNames[peerId] || 'Unknown'
 }
-const existingChat = sortedChats.value.find(chat => chat.peerId === connectId.value);
-if (existingChat) {
-openChat(connectId.value);
-return;
+function getPeerPhoto(chat: Chat & { id: string }): string | null {
+  const peerId = getPeerId(chat)
+  return chat.participantPhotos?.[peerId] || null
 }
-isConnecting.value = true;
-connectError.value = "";
-announcement.value = `Connecting to ${connectId.value}...`;
-try {
-await peerStore.connectToPeer(connectId.value);
-announcement.value = `Connected to ${connectId.value} successfully`;
-connectId.value = "";
-} catch (error) {
-connectError.value = "Failed to connect. Please check the ID and try again.";
-announcement.value = "Connection failed. Please check the ID and try again.";
-} finally {
-isConnecting.value = false;
+function getUnreadCount(chat: Chat & { id: string }): number {
+  return chat.unreadCounts?.[auth.currentUser?.uid || ''] || 0
 }
+function isUserOnline(_chat: Chat & { id: string }): boolean {
+  return false // Would need real-time subscription per user
 }
-function clearConnectError() {
-connectError.value = "";
+function getPreview(chat: Chat & { id: string }): string {
+  if (!chat.lastMessage) return 'No messages yet'
+  const isOwn = chat.lastMessage.senderId === auth.currentUser?.uid
+  const prefix = isOwn ? 'You: ' : ''
+  const content = chat.lastMessage.content
+  return prefix + (content.length > 45 ? content.slice(0, 45) + '…' : content)
 }
-function openChat(peerId: string) {
-appStore.setActiveChat(peerId);
-router.push(`/chat/${peerId}`);
+function getChatAriaLabel(chat: Chat & { id: string }): string {
+  const unread = getUnreadCount(chat)
+  return `${getPeerName(chat)}${unread ? `, ${unread} unread messages` : ''}: ${getPreview(chat)}`
 }
-function startVoiceCall(peerId: string) {
-announcement.value = "Starting voice call...";
-peerStore.startCall(peerId, false);
-router.push(`/call/${peerId}`);
+function formatTime(ts?: number): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const now = new Date()
+  const diffH = (now.getTime() - d.getTime()) / 36e5
+  if (diffH < 24) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (diffH < 168) return d.toLocaleDateString([], { weekday: 'short' })
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
-function startVideoCall(peerId: string) {
-announcement.value = "Starting video call...";
-peerStore.startCall(peerId, true);
-router.push(`/call/${peerId}`);
+
+function openChat(chat: Chat & { id: string }) {
+  appStore.setActiveChatId(chat.id)
+  router.push(`/chat/${chat.id}`)
 }
-function goToCall() {
-router.push(`/call/${callState.value.peerId}`);
-}
-function getLastMessagePreview(chat: Chat): string {
-if (!chat.lastMessage) return "No messages yet";
-const isOwn = chat.lastMessage.senderId === currentUser.value?.id;
-const prefix = isOwn ? "You: " : "";
-const content = chat.lastMessage.content;
-return prefix + (content.length > 50 ? content.substring(0, 50) + "..." : content);
-}
-function formatTime(timestamp?: number): string {
-if (!timestamp) return "";
-const now = new Date();
-const date = new Date(timestamp);
-const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
-if (diffInHours < 24) {
-return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-} else if (diffInHours < 168) { // 7 days
-return date.toLocaleDateString([], { weekday: "short" });
-} else {
-return date.toLocaleDateString([], { month: "short", day: "numeric" });
-}
+
+async function handleLogout() {
+  try {
+    await logoutUser()
+    router.push('/auth')
+  } catch (e) {
+    appStore.addNotification('Failed to sign out', 'error')
+  }
 }
 </script>
+
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@700;800&display=swap');
+
+* { box-sizing: border-box; }
+
 .dashboard {
-min-height: 100vh;
-background: #f7fafc;
+  display: flex;
+  height: 100vh;
+  background: #070a14;
+  font-family: 'DM Sans', sans-serif;
+  color: #e2e8f0;
+  position: relative;
+  overflow: hidden;
 }
 
-.dashboard-header {
-background: white;
-border-bottom: 1px solid #e2e8f0;
-padding: 1rem 0;
+/* ── Sidebar ──────────────────────────────── */
+.sidebar {
+  width: 260px;
+  background: rgba(10, 12, 24, 0.95);
+  border-right: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  backdrop-filter: blur(20px);
 }
 
-.header-content {
-max-width: 800px;
-margin: 0 auto;
-padding: 0 1rem;
-display: flex;
-justify-content: space-between;
-align-items: center;
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
 }
 
-.dashboard-title {
-font-size: 1.5rem;
-font-weight: 700;
-color: #2d3748;
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.user-info {
-display: flex;
-flex-direction: column;
-align-items: flex-end;
-gap: 0.25rem;
+.brand-icon {
+  font-size: 1.4rem;
+  background: linear-gradient(135deg, #5c3bff, #ff3b8c);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-.user-name {
-font-weight: 600;
-color: #2d3748;
+.brand-name {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: #fff;
 }
 
-.user-id {
-font-size: 0.875rem;
-color: #718096;
-font-family: monospace;
-background: #edf2f7;
-padding: 0.25rem 0.5rem;
-border-radius: 4px;
+.sidebar-close {
+  display: none;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 4px;
 }
 
-.dashboard-content {
-max-width: 800px;
-margin: 0 auto;
-padding: 2rem 1rem;
-display: grid;
-gap: 2rem;
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
 }
 
-.section-title {
-font-size: 1.25rem;
-font-weight: 600;
-color: #2d3748;
-margin-bottom: 1rem;
-display: flex;
-align-items: center;
-gap: 0.5rem;
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  color: rgba(255,255,255,0.55);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.15s;
+  text-decoration: none;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+}
+.nav-item:hover, .nav-item.active, .router-link-active.nav-item {
+  background: rgba(92,59,255,0.15);
+  color: #a78bfa;
+}
+.nav-icon { font-size: 1.1rem; }
+
+.logout-btn {
+  margin-top: auto;
+  color: rgba(255,100,100,0.6);
+}
+.logout-btn:hover { background: rgba(255,59,140,0.1); color: #ff3b8c; }
+
+.my-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(255,255,255,0.04);
+  border-radius: 12px;
+  padding: 0.875rem;
+  margin-top: 1rem;
 }
 
-.chat-count {
-font-size: 0.875rem;
-color: #718096;
-font-weight: normal;
+.my-avatar {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5c3bff, #ff3b8c);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1rem;
+  color: #fff;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.my-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.online-dot {
+  position: absolute;
+  bottom: 0; right: 0;
+  width: 10px; height: 10px;
+  background: #34d399;
+  border-radius: 50%;
+  border: 2px solid #0a0c18;
 }
 
-.connect-section {
-background: white;
-border-radius: 12px;
-padding: 1.5rem;
-box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+.my-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.my-info strong {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.my-username {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.connect-form {
-display: grid;
-gap: 1rem;
+/* ── Main Area ─────────────────────────────── */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.form-group {
-display: grid;
-gap: 0.5rem;
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: rgba(7,10,20,0.8);
+  backdrop-filter: blur(20px);
 }
 
-.form-label {
-font-weight: 600;
-color: #2d3748;
+.menu-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0;
 }
 
-.form-input {
-padding: 0.75rem;
-border: 2px solid #e2e8f0;
-border-radius: 8px;
-font-size: 1rem;
-transition: all 0.2s ease;
-text-align: center;
-font-family: monospace;
-font-size: 1.25rem;
-letter-spacing: 0.5rem;
+.page-title {
+  flex: 1;
+  font-family: 'Syne', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
 }
 
-.form-input:focus {
-outline: none;
-border-color: #667eea;
-box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+.new-chat-btn {
+  width: 38px; height: 38px;
+  background: rgba(92,59,255,0.2);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  text-decoration: none;
+  transition: all 0.2s;
+  border: 1px solid rgba(92,59,255,0.3);
 }
+.new-chat-btn:hover { background: rgba(92,59,255,0.35); }
 
-.form-input[aria-invalid="true"] {
-border-color: #e53e3e;
+.search-bar-wrap {
+  padding: 1rem 1.5rem 0.5rem;
 }
-
-.help-text {
-font-size: 0.875rem;
-color: #718096;
+.search-input {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all 0.2s;
 }
-
-.error-message {
-color: #e53e3e;
-font-size: 0.875rem;
-font-weight: 500;
+.search-input:focus {
+  outline: none;
+  border-color: rgba(92,59,255,0.5);
+  background: rgba(92,59,255,0.05);
 }
+.search-input::placeholder { color: rgba(255,255,255,0.25); }
 
-.btn {
-padding: 0.75rem 1rem;
-border: none;
-border-radius: 8px;
-font-size: 1rem;
-font-weight: 600;
-cursor: pointer;
-transition: all 0.2s ease;
-}
-
-.btn-primary {
-background: #667eea;
-color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-background: #5a67d8;
-transform: translateY(-1px);
-}
-
-.btn:disabled {
-opacity: 0.6;
-cursor: not-allowed;
-transform: none;
-}
-
-.btn:focus {
-outline: none;
-box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
-}
-
-.chats-section {
-background: white;
-border-radius: 12px;
-padding: 1.5rem;
-box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+.chats-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0;
 }
 
 .empty-state {
-text-align: center;
-color: #718096;
-padding: 2rem;
-font-style: italic;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  gap: 0.75rem;
+  color: rgba(255,255,255,0.35);
+  text-align: center;
+  padding: 2rem;
 }
-
-.chats-list {
-display: grid;
-gap: 0.5rem;
+.empty-icon { font-size: 3rem; }
+.empty-state h2 { color: rgba(255,255,255,0.6); font-size: 1.1rem; margin: 0; }
+.empty-state p { font-size: 0.875rem; margin: 0; }
+.start-btn {
+  margin-top: 0.5rem;
+  background: linear-gradient(135deg, #5c3bff, #7c3bff);
+  color: #fff;
+  padding: 0.625rem 1.5rem;
+  border-radius: 10px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s;
 }
+.start-btn:hover { opacity: 0.85; transform: translateY(-1px); }
 
 .chat-item {
-display: flex;
-align-items: center;
-gap: 1rem;
-border: 1px solid #e2e8f0;
-border-radius: 8px;
-padding: 1rem;
-transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.875rem 1.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+  transition: background 0.15s;
 }
+.chat-item:hover { background: rgba(255,255,255,0.04); }
 
-.chat-item:hover {
-border-color: #cbd5e0;
-background: #f7fafc;
-}
-
-.chat-button {
-flex: 1;
-display: flex;
-align-items: center;
-gap: 1rem;
-text-align: left;
-border: none;
-background: none;
-cursor: pointer;
-padding: 0;
-min-width: 0;
-}
-
-.chat-button:focus {
-outline: 2px solid #667eea;
-outline-offset: 2px;
-border-radius: 4px;
+.chat-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
 }
 
 .chat-avatar {
-width: 48px;
-height: 48px;
-border-radius: 50%;
-background: #667eea;
-color: white;
-display: flex;
-align-items: center;
-justify-content: center;
-font-weight: 600;
-font-size: 1.25rem;
-flex-shrink: 0;
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5c3bff40, #ff3b8c40);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #a78bfa;
+  overflow: hidden;
+}
+.chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.presence-dot {
+  position: absolute;
+  bottom: 2px; right: 2px;
+  width: 11px; height: 11px;
+  background: #34d399;
+  border-radius: 50%;
+  border: 2px solid #070a14;
 }
 
-.chat-content {
-flex: 1;
-min-width: 0;
-}
+.chat-body { flex: 1; min-width: 0; }
 
-.chat-header {
-display: flex;
-justify-content: space-between;
-align-items: center;
-margin-bottom: 0.25rem;
+.chat-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.25rem;
 }
 
 .chat-name {
-font-weight: 600;
-color: #2d3748;
-margin: 0;
-font-size: 1rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #e2e8f0;
 }
 
 .chat-time {
-font-size: 0.75rem;
-color: #a0aec0;
-flex-shrink: 0;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.3);
+  flex-shrink: 0;
+}
+
+.chat-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .chat-preview {
-display: flex;
-justify-content: space-between;
-align-items: center;
-gap: 0.5rem;
-}
-
-.chat-last-message {
-color: #718096;
-font-size: 0.875rem;
-margin: 0;
-overflow: hidden;
-text-overflow: ellipsis;
-white-space: nowrap;
-flex: 1;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
 }
 
 .unread-badge {
-background: #e53e3e;
-color: white;
-border-radius: 50%;
-width: 24px;
-height: 24px;
-display: flex;
-align-items: center;
-justify-content: center;
-font-size: 0.75rem;
-font-weight: 600;
-flex-shrink: 0;
+  background: #5c3bff;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+  min-width: 20px;
+  text-align: center;
 }
 
-.chat-actions {
-display: flex;
-gap: 0.5rem;
-flex-shrink: 0;
+/* Active Call Bar */
+.active-call-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(229, 62, 62, 0.95);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  color: #fff;
+  font-weight: 600;
+  z-index: 100;
 }
-
-.action-btn {
-width: 40px;
-height: 40px;
-border: 1px solid #e2e8f0;
-background: white;
-border-radius: 8px;
-cursor: pointer;
-display: flex;
-align-items: center;
-justify-content: center;
-transition: all 0.2s ease;
+.call-pulse { animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.return-call-btn {
+  margin-left: auto;
+  background: rgba(255,255,255,0.2);
+  border-radius: 8px;
+  padding: 0.375rem 1rem;
+  color: #fff;
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: background 0.2s;
 }
-
-.action-btn:hover {
-border-color: #cbd5e0;
-background: #f7fafc;
-transform: translateY(-1px);
-}
-
-.action-btn:focus {
-outline: 2px solid #667eea;
-outline-offset: 2px;
-}
-
-.voice-call-btn:hover {
-border-color: #48bb78;
-background: #f0fff4;
-}
-
-.video-call-btn:hover {
-border-color: #4299e1;
-background: #ebf8ff;
-}
-
-.icon {
-font-size: 1.25rem;
-}
-
-.call-overlay-indicator {
-position: fixed;
-top: 1rem;
-right: 1rem;
-z-index: 1000;
-}
-
-.call-indicator-btn {
-background: #e53e3e;
-color: white;
-border: none;
-border-radius: 8px;
-padding: 0.75rem 1rem;
-cursor: pointer;
-display: flex;
-align-items: center;
-gap: 0.5rem;
-font-weight: 600;
-box-shadow: 0 4px 12px rgba(229, 62, 62, 0.3);
-animation: pulse 2s infinite;
-}
-
-.call-indicator-btn:hover {
-background: #c53030;
-}
-
-.call-indicator-btn:focus {
-outline: 2px solid white;
-outline-offset: 2px;
-}
-
-@keyframes pulse {
-0%, 100% { opacity: 1; }
-50% { opacity: 0.8; }
-}
+.return-call-btn:hover { background: rgba(255,255,255,0.3); }
 
 .sr-only {
-position: absolute;
-width: 1px;
-height: 1px;
-padding: 0;
-margin: -1px;
-overflow: hidden;
-clip: rect(0, 0, 0, 0);
-white-space: nowrap;
-border: 0;
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
 
-@media (max-width: 640px) {
-.header-content {
-flex-direction: column;
-gap: 1rem;
-text-align: center;
-}
-
-.user-info {
-align-items: center;
-}
-
-.dashboard-content {
-padding: 1rem;
-}
-
-.chat-item {
-flex-wrap: wrap;
-}
-
-.chat-actions {
-order: 3;
-width: 100%;
-justify-content: flex-end;
-}
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: -100%;
+    top: 0; bottom: 0;
+    z-index: 200;
+    width: 280px;
+    transition: left 0.3s ease;
+    padding-top: 1rem;
+  }
+  .sidebar.open { left: 0; }
+  .sidebar-close { display: block; }
+  .menu-btn { display: block; }
 }
 </style>

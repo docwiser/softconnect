@@ -1,47 +1,28 @@
-export interface User {
-  id: string;
-  name: string;
-  isOnline: boolean;
+// src/types/index.ts
+export type { UserProfile, UserSettings, Message, Chat, CallRecord } from '../services/firebase'
+
+export interface LocalCallState {
+  isActive: boolean
+  isIncoming: boolean
+  isOutgoing: boolean
+  peerId: string          // Firebase UID
+  peerName: string
+  peerPhoto: string | null
+  peerConnectionId: string // PeerJS ID
+  isAudioEnabled: boolean
+  isVideoEnabled: boolean
+  isMuted: boolean
+  isOnHold: boolean
+  currentAudioInput?: string
+  currentAudioOutput?: string
+  currentVideoInput?: string
+  playbackSpeed: number
+  callId?: string        // Firestore call record ID
+  startedAt?: number
 }
 
-export interface Message {
-  id: string;
-  senderId: string;
-  content: string;
-  timestamp: number;
-  type: 'text' | 'system';
-}
-
-export interface Chat {
-  peerId: string;
-  peerName: string;
-  messages: Message[];
-  lastMessage?: Message;
-  unreadCount: number;
-}
-
-export interface CallState {
-  isActive: boolean;
-  isIncoming: boolean;
-  isOutgoing: boolean;
-  peerId: string;
-  peerName: string;
-  isAudioEnabled: boolean;
-  isVideoEnabled: boolean;
-  isMuted: boolean;
-  isOnHold: boolean;
-  currentAudioInput?: string;
-  currentAudioOutput?: string;
-  currentVideoInput?: string;
-  playbackSpeed: number;
-}
-
-export interface PeerConfig {
-  name: string;
-  version: string;
-}
-
-export interface CallRejectMessage {
-  reason: string;
-  message?: string;
+export interface PeerSignal {
+  type: 'call-request' | 'call-reject' | 'call-busy' | 'call-end' | 'hold' | 'config' | 'message' | 'read-receipt'
+  data?: any
+  senderId?: string
 }
