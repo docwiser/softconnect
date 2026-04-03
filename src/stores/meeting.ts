@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { defineStore } from 'pinia'
-import { ref, computed, markRaw } from 'vue'
+import { ref, computed, markRaw, nextTick } from 'vue'
 import {
   sfuCreateSession,
   sfuAddTracks,
@@ -87,12 +87,16 @@ export const useMeetingStore = defineStore('meeting', () => {
   const sfuSessionId = ref<string>('')
   let   pc: RTCPeerConnection | null = null
 
-  // Published track names (used to pull remote tracks later)
+  // published track names (used to pull remote tracks later)
   const myAudioTrackName = ref('')
   const myVideoTrackName = ref('')
   const myScreenTrackName = ref('')
 
+  // map: mid -> { uid, kind }
+  const midMap = ref<Map<string, { uid: string, kind: 'audio' | 'video' }>>(new Map())
+
   // map: uid → { audioTrackName, videoTrackName }
+
   // Written to Firestore participant doc so peers know what to pull
   // Read from Firestore participant docs of other users
   const remotePulled = ref<Set<string>>(new Set()) // uids we have pulled tracks for
@@ -109,6 +113,7 @@ export const useMeetingStore = defineStore('meeting', () => {
   const layout                  = ref<'grid' | 'spotlight' | 'sidebar'>('grid')
   const spotlightUid            = ref<string | null>(null)
   const notifications           = ref<MeetingNotification[]>([])
+  const screenReaderAnnouncement = ref('')
   const isSettingsPanelOpen     = ref(false)
   const isParticipantsPanelOpen = ref(false)
   const handRaisedQueue         = ref<string[]>([])
@@ -234,13 +239,17 @@ export const useMeetingStore = defineStore('meeting', () => {
     const newPc = new RTCPeerConnection({ iceServers: SFU_ICE_SERVERS })
 
     // Gather all remote tracks into per-uid MediaStreams
-    newPc.ontrack = ({ track, streams }) => {
-      // streams[0] contains the MediaStream; we tag the stream with uid via
-      // track.id convention: we name tracks as `{uid}:audio` and `{uid}:video`
-      // Parse uid from track.id (our convention below)
-      const [uid, kind] = (track.id || '').split(':')
-      if (!uid || !kind) return
-      updateOrCreateRemoteStream(uid, track, kind as 'audio' | 'video')
+    newPc.ontrack = (event) => {
+      const mid = event.transceiver.mid
+      if (!mid) return
+      
+      const info = midMap.value.get(mid)
+      if (!info) {
+        console.warn('[SFU] ontrack: No midMap info for MID', mid)
+        return
+      }
+
+      updateOrCreateRemoteStream(info.uid, event.track, info.kind)
     }
 
     newPc.onicecandidate = () => {
@@ -336,6 +345,15 @@ export const useMeetingStore = defineStore('meeting', () => {
       pc.localDescription!,
     )
 
+    if (res.tracks) {
+      res.tracks.forEach(t => {
+        const [uid, kind] = (t.trackName || '').split(':')
+        if (uid && kind) {
+          midMap.value.set(t.mid, { uid, kind: kind as 'audio' | 'video' })
+        }
+      })
+    }
+
     if (res.sessionDescription) {
       await pc.setRemoteDescription(res.sessionDescription as RTCSessionDescriptionInit)
     }
@@ -360,6 +378,16 @@ export const useMeetingStore = defineStore('meeting', () => {
     ]
 
     const res = await sfuAddTracks(sfuSessionId.value, tracksToAdd)
+
+    // Populate midMap so ontrack can identify these tracks
+    if (res.tracks) {
+      res.tracks.forEach(t => {
+        const [uid, kind] = (t.trackName || '').split(':')
+        if (uid && kind) {
+          midMap.value.set(t.mid, { uid, kind: kind as 'audio' | 'video' })
+        }
+      })
+    }
 
     if (res.requiresImmediateRenegotiation && res.sessionDescription) {
       // SFU sent an offer — set it and reply with answer
@@ -429,14 +457,36 @@ export const useMeetingStore = defineStore('meeting', () => {
 
     // Listen to meeting document for participant roster changes
     unsubMeeting = listenToMeeting(mId, updatedMeeting => {
-      const prev = meeting.value
+      const prevParticipants = meeting.value?.participants || {}
       meeting.value = updatedMeeting
 
       const myUid = auth.currentUser?.uid
       if (!myUid) return
 
       Object.values(updatedMeeting.participants).forEach(p => {
-        if (p.uid === myUid) return
+        // Announce join/leave
+        const prevP = prevParticipants[p.uid]
+        if (!prevP && p.status === 'joined') {
+          addScreenReaderAnnouncement(`${p.displayName} joined the meeting`)
+        } else if (prevP?.status === 'joined' && (p.status === 'left' || p.status === 'removed')) {
+          addScreenReaderAnnouncement(`${p.displayName} left the meeting`)
+        }
+
+        if (p.uid === myUid) {
+          // Sync local state if changed by host (e.g. host lower hand, host mute)
+          if (p.isHandRaised !== isHandRaised.value) {
+            isHandRaised.value = p.isHandRaised
+            if (!p.isHandRaised) addNotification('The host lowered your hand', 'info')
+          }
+          if (p.isAudioMuted !== isAudioMuted.value) {
+            isAudioMuted.value = p.isAudioMuted
+            if (localStream.value) {
+              localStream.value.getAudioTracks().forEach(t => t.enabled = !p.isAudioMuted)
+            }
+            if (p.isAudioMuted) addNotification('The host muted you', 'warning')
+          }
+          return
+        }
 
         // Sync remote stream display state from Firestore
         const rs = remoteStreams.value.get(p.uid)
@@ -515,6 +565,7 @@ export const useMeetingStore = defineStore('meeting', () => {
     sfuSessionId.value = ''
     remotePulled.value.clear()
     remoteStreams.value.clear()
+    midMap.value.clear()
 
     // Stop speaking detection
     if (speakingInterval) { clearInterval(speakingInterval); speakingInterval = null }
@@ -842,6 +893,11 @@ export const useMeetingStore = defineStore('meeting', () => {
     setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id) }, 4000)
   }
 
+  function addScreenReaderAnnouncement(message: string): void {
+    screenReaderAnnouncement.value = ''
+    nextTick(() => { screenReaderAnnouncement.value = message })
+  }
+
   // ── ICE-gathering helper ──────────────────────────────────────────────────
   async function waitForIceGathering(peerConn: RTCPeerConnection, timeoutMs = 4000): Promise<void> {
     if (peerConn.iceGatheringState === 'complete') return
@@ -865,7 +921,7 @@ export const useMeetingStore = defineStore('meeting', () => {
     isScreenSharing, isHandRaised, isSpeaking,
     remoteStreams, remoteStreamsArray,
     chatMessages, unreadChatCount, isChatOpen,
-    layout, spotlightUid, notifications,
+    layout, spotlightUid, notifications, screenReaderAnnouncement,
     isSettingsPanelOpen, isParticipantsPanelOpen,
     handRaisedQueue, isRecording,
     audioInputs, audioOutputs, videoInputs,
@@ -891,6 +947,6 @@ export const useMeetingStore = defineStore('meeting', () => {
     openChat, closeChat, sendChat,
     toggleRecording,
     setLayout, setSpotlight,
-    addNotification,
+    addNotification, addScreenReaderAnnouncement,
   }
 })

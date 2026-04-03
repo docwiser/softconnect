@@ -277,10 +277,10 @@
                 <span v-if="p.isHandRaised">✋</span>
               </div>
               <div v-if="meetingStore.canManageParticipants" class="part-actions" role="group" :aria-label="`Actions for ${p.displayName}`">
-                <button class="part-action-btn" @click="toggleParticipantMenu(p.uid)" :aria-label="`More options for ${p.displayName}`" :aria-expanded="openParticipantMenu === p.uid">
+                <button class="part-action-btn" @click.stop="toggleParticipantMenu(p.uid)" :aria-label="`More options for ${p.displayName}`" :aria-expanded="openParticipantMenu === p.uid">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
                 </button>
-                <div v-if="openParticipantMenu === p.uid" class="participant-menu" role="menu">
+                <div v-if="openParticipantMenu === p.uid" class="participant-menu" role="menu" @click.stop>
                   <button role="menuitem" @click="meetingStore.hostMute(p.uid); openParticipantMenu = null">Mute</button>
                   <button role="menuitem" @click="meetingStore.hostRequestUnmute(p.uid); openParticipantMenu = null">Ask to Unmute</button>
                   <button role="menuitem" @click="meetingStore.hostLowerHand(p.uid); openParticipantMenu = null">Lower Hand</button>
@@ -514,6 +514,7 @@ const appStore     = useAppStore()
 const currentUser   = computed(() => auth.currentUser)
 const meetingCode   = computed(() => route.params.code as string)
 const remoteStreams  = computed(() => meetingStore.remoteStreams)
+const screenReaderAnnouncement = computed(() => meetingStore.screenReaderAnnouncement)
 
 // Local refs
 const localVideoRef    = ref<HTMLVideoElement>()
@@ -527,7 +528,6 @@ const showLeaveDialog       = ref(false)
 const showReactionPicker    = ref(false)
 const chatInput             = ref('')
 const openParticipantMenu   = ref<string | null>(null)
-const screenReaderAnnouncement = ref('')
 const elapsedMs             = ref(0)
 let timerInterval: ReturnType<typeof setInterval> | null = null
 
@@ -571,7 +571,7 @@ onMounted(async () => {
   }
   await meetingStore.enumerateDevices()
   timerInterval = setInterval(() => { elapsedMs.value += 1000 }, 1000)
-  screenReaderAnnouncement.value = `You joined the meeting: ${meetingStore.meeting?.title}`
+  meetingStore.addScreenReaderAnnouncement(`You joined the meeting: ${meetingStore.meeting?.title}`)
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -691,7 +691,7 @@ function formatMsgTime(ts?: number): string {
 .video-tile.speaking { border-color:#34d399; }
 .video-tile:focus-visible { outline:3px solid #7c6fff;outline-offset:-3px; }
 .video-tile .tile-video { width:100%;height:100%;object-fit:cover; }
-.video-tile .tile-video.hidden { display:none; }
+.video-tile .tile-video.hidden { opacity: 0; pointer-events: none; }
 .tile-video-wrapper { width:100%;height:100%;position:relative; }
 .tile-avatar { position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0e1128,#1a0a2e); }
 .ta-circle { width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#5c3bff,#ff3b8c);display:flex;align-items:center;justify-content:center;font-size:1.75rem;font-weight:700;color:#fff;overflow:hidden; }
