@@ -232,11 +232,23 @@ export async function joinMeeting(
     isVideoOff: boolean
   }
 ): Promise<void> {
+  const meeting = await getMeetingById(meetingId)
+  
+  // Default role
+  let role: ParticipantRole = 'attendee'
+  
+  // Check if host rejoining or if already has a role (e.g. co-host)
+  if (meeting?.hostUid === participant.uid) {
+    role = 'host'
+  } else if (meeting?.participants[participant.uid]) {
+    role = meeting.participants[participant.uid].role
+  }
+
   const p: MeetingParticipant = {
     uid: participant.uid,
     displayName: participant.displayName,
     photoURL: participant.photoURL,
-    role: 'attendee',
+    role: role,
     status: 'joined',
     joinedAt: Timestamp.now(),
     leftAt: null,
@@ -249,12 +261,6 @@ export async function joinMeeting(
     canUnmuteSelf: true,
     canShareScreen: true,
     canChat: true
-  }
-
-  // Check if host joining
-  const meeting = await getMeetingById(meetingId)
-  if (meeting?.hostUid === participant.uid) {
-    p.role = 'host'
   }
 
   await updateDoc(doc(db, 'meetings', meetingId), {

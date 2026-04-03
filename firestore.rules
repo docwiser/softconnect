@@ -147,12 +147,17 @@ service cloud.firestore {
         )
 
         // Participant can update ONLY their own state
+        // OR a new participant can join by adding themselves
         || (
-          isParticipant()
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly([
-              "participants." + request.auth.uid
-            ])
+          request.resource.data.hostUid == resource.data.hostUid
+          && request.resource.data.diff(resource.data).affectedKeys().all(k,
+               k.matches('participants\\.' + request.auth.uid + '($|\\..*)'))
+          && (
+            // If already a participant, ensure role hasn't changed
+            (isParticipant() && request.resource.data.participants[request.auth.uid].role == resource.data.participants[request.auth.uid].role)
+            // If joining, must join as attendee
+            || (!(request.auth.uid in resource.data.participants) && request.resource.data.participants[request.auth.uid].role == 'attendee')
+          )
         )
       );
 
