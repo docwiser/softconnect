@@ -129,7 +129,7 @@ service cloud.firestore {
 
       // ─── READ ─────────────────────────────
       allow get: if isAuth();
-      allow list: if isParticipant() || isHost();
+      allow list: if isAuth(); // simplified for debugging/listing my meetings
 
       // ─── CREATE ───────────────────────────
       allow create: if isAuth()
@@ -137,8 +137,8 @@ service cloud.firestore {
 
       // ─── UPDATE ───────────────────────────
       allow update: if isAuth() && (
-        // Host can do anything
-        isHost()
+        // Host can do anything (as long as they don't change hostUid)
+        (isHost() && request.resource.data.hostUid == resource.data.hostUid)
 
         // Co-host can manage participants/settings (limited)
         || (
@@ -146,16 +146,18 @@ service cloud.firestore {
           && request.resource.data.hostUid == resource.data.hostUid
         )
 
-        // Participant can update ONLY their own state
+        // Participant (including host/cohost) can update ONLY their own state
         // OR a new participant can join by adding themselves
         || (
           request.resource.data.hostUid == resource.data.hostUid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants', 'status', 'startedAt'])
           && request.resource.data.participants.diff(resource.data.participants).affectedKeys().hasOnly([request.auth.uid])
           && (
             // If already a participant, ensure role hasn't changed
             (isParticipant() && request.resource.data.participants[request.auth.uid].role == resource.data.participants[request.auth.uid].role)
-            // If joining, must join as attendee
+            // If re-joining host, role is host
+            || (resource.data.hostUid == request.auth.uid && request.resource.data.participants[request.auth.uid].role == 'host')
+            // If joining as new, must join as attendee
             || (!(request.auth.uid in resource.data.participants) && request.resource.data.participants[request.auth.uid].role == 'attendee')
           )
         )

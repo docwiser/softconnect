@@ -293,11 +293,9 @@ export const useMeetingStore = defineStore('meeting', () => {
     // Audio track
     const audioTrack = localStream.value.getAudioTracks()[0]
     if (audioTrack) {
-      // Name convention: {uid}:audio — used in ontrack to identify sender
       const audioTrackName = `${uid}:audio`
       myAudioTrackName.value = audioTrackName
       const tx = pc.addTransceiver(audioTrack, { direction: 'sendonly' })
-      tracksToAdd.push({ location: 'local', mid: tx.mid ?? undefined, trackName: audioTrackName })
       transceivers.push(tx)
     }
 
@@ -307,11 +305,10 @@ export const useMeetingStore = defineStore('meeting', () => {
       const videoTrackName = `${uid}:video`
       myVideoTrackName.value = videoTrackName
       const tx = pc.addTransceiver(videoTrack, { direction: 'sendonly' })
-      tracksToAdd.push({ location: 'local', mid: tx.mid ?? undefined, trackName: videoTrackName })
       transceivers.push(tx)
     }
 
-    if (tracksToAdd.length === 0) return
+    if (transceivers.length === 0) return
 
     // Create offer
     const offer = await pc.createOffer()
@@ -319,6 +316,19 @@ export const useMeetingStore = defineStore('meeting', () => {
 
     // Wait for ICE gathering
     await waitForIceGathering(pc)
+
+    // NOW capture MIDs (they are assigned after setLocalDescription)
+    transceivers.forEach(tx => {
+      const kind = tx.sender.track?.kind
+      const trackName = kind === 'audio' ? myAudioTrackName.value : myVideoTrackName.value
+      if (trackName) {
+        tracksToAdd.push({
+          location: 'local',
+          mid: tx.mid!,
+          trackName
+        })
+      }
+    })
 
     const res = await sfuAddTracks(
       sfuSessionId.value,
@@ -553,7 +563,7 @@ export const useMeetingStore = defineStore('meeting', () => {
   async function flushStateToFirestore(): Promise<void> {
     const uid = auth.currentUser?.uid
     const mId = meetingId.value
-    if (!uid || !mId) return
+    if (!uid || !mId || !isInMeeting.value) return
     await updateParticipantState(mId, uid, {
       isAudioMuted:    isAudioMuted.value,
       isVideoOff:      isVideoOff.value,

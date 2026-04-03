@@ -84,10 +84,10 @@
         </div>
       </header>
 
-      <search class="search-bar-wrap">
+      <div role="search" class="search-bar-wrap">
         <label for="chat-search" class="sr-only">Search conversations</label>
         <input id="chat-search" v-model="chatSearch" type="search" placeholder="Search conversations…" class="search-input" aria-label="Search conversations" autocomplete="off" />
-      </search>
+      </div>
 
       <main class="chats-region" aria-label="Conversations list">
         <div class="chats-list" role="list" :aria-label="filteredChats.length > 0 ? `${filteredChats.length} conversation${filteredChats.length !== 1 ? 's' : ''}` : 'No conversations'">

@@ -16,6 +16,7 @@ async function sfuFetch(path: string, method: string, body?: unknown): Promise<u
     headers: {
       'Authorization': `Bearer ${CF_APP_TOKEN}`,
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
     },
     body: body ? JSON.stringify(body) : undefined,
   })
