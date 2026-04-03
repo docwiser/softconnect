@@ -11,6 +11,7 @@
         role="alert"
         aria-live="assertive"
         aria-atomic="true"
+        aria-label="Active call notification"
       >
         <div class="banner-pulse" aria-hidden="true"></div>
         <div class="banner-info">
@@ -23,16 +24,18 @@
             <span>{{ callState.isIncoming ? 'Incoming call' : 'Call in progress' }}</span>
           </div>
         </div>
-        <RouterLink :to="`/call/${callState.peerId}`" class="banner-return-btn">
+        <RouterLink
+          :to="`/call/${callState.peerId}`"
+          class="banner-return-btn"
+          :aria-label="callState.isIncoming ? `Answer call from ${callState.peerName}` : `Return to call with ${callState.peerName}`"
+        >
           {{ callState.isIncoming ? 'Answer' : 'Return' }}
         </RouterLink>
       </div>
     </Transition>
 
-    <!-- Main content -->
-    <main id="main-content" tabindex="-1">
-      <RouterView />
-    </main>
+    <!-- Main content — RouterView renders each page's own semantic structure -->
+    <RouterView id="main-content" />
 
     <!-- Toast Notifications -->
     <div
@@ -64,6 +67,7 @@
       aria-live="polite"
       aria-atomic="true"
       class="route-announcer"
+      aria-label="Navigation announcement"
     >{{ routeAnnouncement }}</div>
   </div>
 </template>
@@ -88,7 +92,6 @@ const showCallBanner = computed(() => {
   return hasCall && notOnCallScreen
 })
 
-// Announce route changes to screen readers
 watch(() => route.name, (newName) => {
   const routeNames: Record<string, string> = {
     'welcome': 'Loading…',
@@ -145,10 +148,10 @@ body {
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
-/* Focus ring */
+/* Focus ring - WCAG 2.1 AAA: 3:1 contrast ratio minimum */
 *:focus-visible {
-  outline: 2px solid #5c3bff;
-  outline-offset: 2px;
+  outline: 3px solid #7c6fff;
+  outline-offset: 3px;
   border-radius: 4px;
 }
 
@@ -167,6 +170,13 @@ a { color: inherit; text-decoration: none; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* High contrast mode support */
+@media (forced-colors: active) {
+  *:focus-visible {
+    outline: 3px solid ButtonText;
+  }
+}
 </style>
 
 <style scoped>
@@ -182,16 +192,18 @@ a { color: inherit; text-decoration: none; }
   left: 0.5rem;
   background: #5c3bff;
   color: #fff;
-  padding: 0.5rem 1rem;
+  padding: 0.625rem 1.25rem;
   border-radius: 0 0 8px 8px;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
   z-index: 99999;
   transition: top 0.2s;
+  text-decoration: none;
 }
 .skip-link:focus {
   top: 0;
-  outline: none;
+  outline: 3px solid #fff;
+  outline-offset: 2px;
 }
 
 /* ── Call Banner ─────────────────────────────────────────────────────────────── */
@@ -199,7 +211,7 @@ a { color: inherit; text-decoration: none; }
   position: fixed;
   top: 0; left: 0; right: 0;
   background: rgba(10, 8, 30, 0.96);
-  border-bottom: 1px solid rgba(92,59,255,0.4);
+  border-bottom: 2px solid rgba(92,59,255,0.6);
   backdrop-filter: blur(20px);
   display: flex;
   align-items: center;
@@ -256,7 +268,7 @@ a { color: inherit; text-decoration: none; }
 }
 .banner-text span {
   font-size: 0.75rem;
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.55);
 }
 
 .banner-return-btn {
@@ -264,13 +276,21 @@ a { color: inherit; text-decoration: none; }
   color: #fff;
   padding: 0.5rem 1.25rem;
   border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 700;
   transition: opacity 0.2s;
   white-space: nowrap;
   flex-shrink: 0;
+  text-decoration: none;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
 }
 .banner-return-btn:hover { opacity: 0.85; }
+.banner-return-btn:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
 
 .call-banner-enter-active, .call-banner-leave-active {
   transition: transform 0.3s ease, opacity 0.3s ease;
@@ -309,23 +329,23 @@ a { color: inherit; text-decoration: none; }
 }
 
 .toast-info {
-  background: rgba(92, 59, 255, 0.85);
+  background: rgba(92, 59, 255, 0.9);
   border: 1px solid rgba(92,59,255,0.6);
   color: #fff;
 }
 .toast-success {
-  background: rgba(20, 83, 45, 0.9);
-  border: 1px solid rgba(52,211,153,0.4);
+  background: rgba(20, 83, 45, 0.95);
+  border: 1px solid rgba(52,211,153,0.5);
   color: #86efac;
 }
 .toast-error {
-  background: rgba(127, 29, 29, 0.9);
-  border: 1px solid rgba(255,59,92,0.4);
+  background: rgba(127, 29, 29, 0.95);
+  border: 1px solid rgba(255,59,92,0.5);
   color: #fca5a5;
 }
 .toast-warning {
-  background: rgba(120, 80, 0, 0.9);
-  border: 1px solid rgba(251,191,36,0.4);
+  background: rgba(120, 80, 0, 0.95);
+  border: 1px solid rgba(251,191,36,0.5);
   color: #fde68a;
 }
 

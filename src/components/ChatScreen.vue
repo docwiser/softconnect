@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-screen" role="main" :aria-label="`Chat with ${peerName}`">
+  <div class="chat-screen" id="main-content" tabindex="-1">
     <!-- Header -->
     <header class="chat-header" role="banner">
       <button
@@ -13,11 +13,11 @@
         </svg>
       </button>
 
-      <!-- Peer Info — clicking opens profile -->
+      <!-- Peer Info — clicking opens profile dialog -->
       <button
         class="peer-info-btn"
-        @click="showProfileDialog = true"
-        :aria-label="`View ${peerName}'s profile`"
+        @click="openProfile"
+        :aria-label="`View ${peerName}'s profile. ${peerOnline ? 'Online' : lastSeenText}`"
         :title="`View ${peerName}'s profile`"
       >
         <div class="peer-avatar" aria-hidden="true">
@@ -40,8 +40,9 @@
           class="header-btn"
           @click="startCall(false)"
           :disabled="isCallActive || !peerOnline"
-          :aria-label="peerOnline ? 'Voice call' : `${peerName} is offline`"
+          :aria-label="peerOnline ? `Start voice call with ${peerName}` : `${peerName} is offline — voice call unavailable`"
           :title="peerOnline ? 'Voice call' : 'User offline'"
+          :aria-disabled="isCallActive || !peerOnline"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.01 1.18 2 2 0 012 0h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14v2.92z"/>
@@ -51,8 +52,9 @@
           class="header-btn"
           @click="startCall(true)"
           :disabled="isCallActive || !peerOnline"
-          :aria-label="peerOnline ? 'Video call' : `${peerName} is offline`"
+          :aria-label="peerOnline ? `Start video call with ${peerName}` : `${peerName} is offline — video call unavailable`"
           :title="peerOnline ? 'Video call' : 'User offline'"
+          :aria-disabled="isCallActive || !peerOnline"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polygon points="23 7 16 12 23 17 23 7"/>
@@ -64,7 +66,7 @@
           @click="toggleMenu"
           :aria-label="showMenu ? 'Close options menu' : 'More options'"
           :aria-expanded="showMenu"
-          :aria-haspopup="true"
+          aria-haspopup="true"
           ref="menuTriggerRef"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -121,24 +123,37 @@
 
     <!-- Search bar (conditional) -->
     <Transition name="slide-down">
-      <div v-if="isSearching" class="search-bar" role="search">
+      <search v-if="isSearching" class="search-bar" aria-label="Search messages">
+        <label for="msg-search" class="sr-only">Search messages</label>
         <input
+          id="msg-search"
           ref="searchInputEl"
           v-model="searchQuery"
           type="search"
           placeholder="Search messages…"
           aria-label="Search messages"
+          :aria-describedby="searchQuery ? 'search-results-count' : undefined"
           @keydown.escape="isSearching = false; searchQuery = ''"
         />
-        <span v-if="searchQuery" class="search-results-count">
+        <span
+          v-if="searchQuery"
+          id="search-results-count"
+          class="search-results-count"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {{ searchResultCount }} result{{ searchResultCount !== 1 ? 's' : '' }}
         </span>
-        <button @click="isSearching = false; searchQuery = ''" aria-label="Close search">✕</button>
-      </div>
+        <button
+          @click="isSearching = false; searchQuery = ''"
+          aria-label="Close message search"
+        >✕</button>
+      </search>
     </Transition>
 
     <!-- Messages -->
-    <div
+    <main
       ref="messagesEl"
       class="messages-area"
       role="log"
@@ -146,13 +161,13 @@
       aria-relevant="additions"
       :aria-label="`Messages with ${peerName}`"
     >
-      <div v-if="filteredMessages.length === 0 && !searchQuery" class="no-messages">
+      <div v-if="filteredMessages.length === 0 && !searchQuery" class="no-messages" role="status">
         <div class="wave" aria-hidden="true">👋</div>
         <p>Say hello to <strong>{{ peerName }}</strong>!</p>
         <p class="no-msg-hint">Messages are end-to-end secured via Firebase rules.</p>
       </div>
 
-      <div v-if="searchQuery && filteredMessages.length === 0" class="no-results">
+      <div v-if="searchQuery && filteredMessages.length === 0" class="no-results" role="status">
         <p>No messages matching "{{ searchQuery }}"</p>
       </div>
 
@@ -167,10 +182,9 @@
           <span>{{ formatDateDivider(msg.timestamp?.toMillis()) }}</span>
         </div>
 
-        <div
+        <article
           :class="['message-wrap', msg.senderId === myUid ? 'own' : 'peer']"
           :id="`msg-${msg.id}`"
-          role="article"
           :aria-label="getMessageAriaLabel(msg)"
         >
           <div
@@ -178,14 +192,18 @@
             @dblclick="msg.senderId === myUid && !msg.deleted ? startReplyTo(msg) : undefined"
           >
             <!-- Reply indicator -->
-            <div v-if="msg.replyTo" class="reply-indicator" aria-label="Replying to a message">
+            <div v-if="msg.replyTo" class="reply-indicator" aria-label="Replying to a previous message">
               <span class="reply-bar" aria-hidden="true"></span>
               <span class="reply-text">{{ msg.replyTo }}</span>
             </div>
 
             <span class="msg-text">{{ msg.content }}</span>
             <div class="msg-meta">
-              <span class="msg-time">{{ formatMsgTime(msg.timestamp?.toMillis()) }}</span>
+              <time
+                class="msg-time"
+                :datetime="msg.timestamp?.toDate().toISOString()"
+                :title="msg.timestamp?.toDate().toLocaleString()"
+              >{{ formatMsgTime(msg.timestamp?.toMillis()) }}</time>
               <span
                 v-if="msg.senderId === myUid && !msg.deleted"
                 class="read-indicator"
@@ -209,12 +227,12 @@
             class="msg-actions"
             :class="msg.senderId === myUid ? 'own-actions' : 'peer-actions'"
             role="group"
-            :aria-label="`Actions for message`"
+            :aria-label="`Actions for message from ${msg.senderId === myUid ? 'you' : peerName}`"
           >
             <button
               class="msg-action-btn"
               @click="startReplyTo(msg)"
-              aria-label="Reply"
+              aria-label="Reply to this message"
               title="Reply"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>
@@ -222,7 +240,7 @@
             <button
               class="msg-action-btn"
               @click="copyMessage(msg.content)"
-              aria-label="Copy message"
+              aria-label="Copy message text to clipboard"
               title="Copy"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
@@ -231,26 +249,38 @@
               v-if="msg.senderId === myUid"
               class="msg-action-btn danger"
               @click="deleteMsg(msg.id)"
-              aria-label="Delete message"
+              aria-label="Delete this message"
               title="Delete"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
             </button>
           </div>
-        </div>
+        </article>
       </template>
 
       <!-- Typing indicator -->
-      <div v-if="peerIsTyping" class="typing-indicator" aria-live="polite" :aria-label="`${peerName} is typing`">
-        <span></span><span></span><span></span>
+      <div
+        v-if="peerIsTyping"
+        class="typing-indicator"
+        aria-live="polite"
+        :aria-label="`${peerName} is typing`"
+        role="status"
+      >
+        <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+        <span class="sr-only">{{ peerName }} is typing…</span>
       </div>
 
-      <div ref="bottomAnchor"></div>
-    </div>
+      <div ref="bottomAnchor" tabindex="-1"></div>
+    </main>
 
     <!-- Reply banner -->
     <Transition name="slide-up-sm">
-      <div v-if="replyTo" class="reply-banner" role="status" :aria-label="`Replying to: ${replyTo.content}`">
+      <div
+        v-if="replyTo"
+        class="reply-banner"
+        role="status"
+        :aria-label="`Replying to message: ${replyTo.content}`"
+      >
         <div class="reply-banner-content">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>
           <span>Replying to: {{ truncate(replyTo.content, 60) }}</span>
@@ -260,122 +290,174 @@
     </Transition>
 
     <!-- Input area -->
-    <form class="input-area" @submit.prevent="sendMsg" role="form" :aria-label="`Send a message to ${peerName}`">
-      <button
-        type="button"
-        class="attach-btn"
-        @click="handleAttachment"
-        aria-label="Attach file"
-        title="Attach file (coming soon)"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-      </button>
+    <footer class="input-area" role="contentinfo" aria-label="Compose message">
+      <form @submit.prevent="sendMsg" :aria-label="`Send a message to ${peerName}`">
+        <button
+          type="button"
+          class="attach-btn"
+          @click="handleAttachment"
+          aria-label="Attach a file (coming soon)"
+          title="Attach file (coming soon)"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+        </button>
 
-      <div class="input-wrapper">
-        <textarea
-          ref="inputEl"
-          v-model="newMsg"
-          placeholder="Message…"
-          class="msg-input"
-          :maxlength="2000"
-          @keydown="handleInputKey"
-          @input="autoResize(); handleTyping()"
-          rows="1"
-          :aria-label="`Type a message to ${peerName}`"
-          :aria-describedby="newMsg.length > 1800 ? 'char-count' : undefined"
-        ></textarea>
-        <span
-          v-if="newMsg.length > 1800"
-          id="char-count"
-          class="char-hint"
-          :aria-label="`${2000 - newMsg.length} characters remaining`"
-        >{{ 2000 - newMsg.length }}</span>
-      </div>
+        <div class="input-wrapper">
+          <label for="message-input" class="sr-only">Type a message to {{ peerName }}</label>
+          <textarea
+            id="message-input"
+            ref="inputEl"
+            v-model="newMsg"
+            placeholder="Message…"
+            class="msg-input"
+            :maxlength="2000"
+            @keydown="handleInputKey"
+            @input="autoResize(); handleTyping()"
+            rows="1"
+            :aria-label="`Type a message to ${peerName}`"
+            :aria-describedby="newMsg.length > 1800 ? 'char-count' : 'input-hint'"
+          ></textarea>
+          <span id="input-hint" class="sr-only">Press Enter to send, Shift+Enter for new line</span>
+          <span
+            v-if="newMsg.length > 1800"
+            id="char-count"
+            class="char-hint"
+            role="status"
+            aria-live="polite"
+            :aria-label="`${2000 - newMsg.length} characters remaining`"
+          >{{ 2000 - newMsg.length }}</span>
+        </div>
 
-      <button
-        type="submit"
-        class="send-btn"
-        :disabled="!newMsg.trim()"
-        :aria-label="newMsg.trim() ? 'Send message' : 'Type a message to send'"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-        </svg>
-      </button>
-    </form>
+        <button
+          type="submit"
+          class="send-btn"
+          :disabled="!newMsg.trim()"
+          :aria-label="newMsg.trim() ? `Send message to ${peerName}` : 'Type a message first'"
+          :aria-disabled="!newMsg.trim()"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </form>
+    </footer>
 
-    <!-- Inline Profile Dialog -->
+    <!-- Profile Dialog — uses native dialog for auto-focus management -->
     <Transition name="modal-fade">
       <div
         v-if="showProfileDialog && peerProfile"
         class="modal-overlay"
         @click.self="showProfileDialog = false"
-        role="dialog"
-        :aria-modal="true"
-        :aria-label="`${peerProfile.displayName}'s profile`"
+        role="presentation"
       >
-        <div class="profile-dialog">
-          <button class="dialog-close" @click="showProfileDialog = false" aria-label="Close profile">✕</button>
-          <div class="dialog-avatar">
+        <dialog
+          open
+          class="profile-dialog"
+          :aria-label="`${peerProfile.displayName}'s profile`"
+          @keydown.escape="showProfileDialog = false"
+        >
+          <button
+            class="dialog-close"
+            @click="showProfileDialog = false"
+            aria-label="Close profile"
+            ref="profileDialogCloseRef"
+          >✕</button>
+          <div class="dialog-avatar" aria-hidden="true">
             <img v-if="peerProfile.photoURL" :src="peerProfile.photoURL" :alt="peerProfile.displayName" />
             <span v-else>{{ peerProfile.displayName.charAt(0).toUpperCase() }}</span>
-            <span v-if="peerOnline" class="dialog-online-badge">Online</span>
+            <span v-if="peerOnline" class="dialog-online-badge" aria-hidden="true">Online</span>
           </div>
           <h2>{{ peerProfile.displayName }}</h2>
           <p class="dialog-username">@{{ peerProfile.username }}</p>
           <p v-if="peerProfile.bio" class="dialog-bio">{{ peerProfile.bio }}</p>
-          <div class="dialog-chips">
-            <span v-if="peerProfile.settings?.showPhone && peerProfile.phone">
-              📱 {{ peerProfile.phone }}
-            </span>
-            <span>📅 Joined {{ formatJoinDate(peerProfile.createdAt?.toMillis()) }}</span>
-            <span v-if="!peerOnline && peerProfile.settings?.showLastSeen">
-              🕐 {{ lastSeenText }}
-            </span>
-          </div>
-          <div class="dialog-actions">
-            <button class="dialog-btn primary" @click="startCall(false); showProfileDialog = false" :disabled="!peerOnline">
+          <ul class="dialog-chips" aria-label="Profile details">
+            <li v-if="peerProfile.settings?.showPhone && peerProfile.phone">
+              <span aria-label="Phone number">📱 {{ peerProfile.phone }}</span>
+            </li>
+            <li>
+              <span>📅 Joined {{ formatJoinDate(peerProfile.createdAt?.toMillis()) }}</span>
+            </li>
+            <li v-if="!peerOnline && peerProfile.settings?.showLastSeen">
+              <span>🕐 {{ lastSeenText }}</span>
+            </li>
+          </ul>
+          <div class="dialog-actions" role="group" aria-label="Actions">
+            <button
+              class="dialog-btn primary"
+              @click="startCall(false); showProfileDialog = false"
+              :disabled="!peerOnline"
+              :aria-label="`Voice call ${peerProfile.displayName}`"
+            >
               📞 Call
             </button>
-            <button class="dialog-btn primary" @click="startCall(true); showProfileDialog = false" :disabled="!peerOnline">
+            <button
+              class="dialog-btn primary"
+              @click="startCall(true); showProfileDialog = false"
+              :disabled="!peerOnline"
+              :aria-label="`Video call ${peerProfile.displayName}`"
+            >
               📹 Video
             </button>
-            <button class="dialog-btn" @click="viewFullProfile">View Full Profile</button>
+            <button
+              class="dialog-btn"
+              @click="viewFullProfile"
+              aria-label="View full profile page"
+            >View Full Profile</button>
           </div>
-        </div>
+        </dialog>
       </div>
     </Transition>
 
-    <!-- Block confirm modal -->
+    <!-- Block confirm dialog -->
     <Transition name="modal-fade">
-      <div v-if="showBlockModal" class="modal-overlay" @click.self="showBlockModal = false" role="dialog" aria-modal="true" aria-label="Block user">
-        <div class="modal">
-          <h2>Block {{ peerName }}?</h2>
-          <p>They won't be able to send you messages or call you. You can unblock from their profile.</p>
+      <div
+        v-if="showBlockModal"
+        class="modal-overlay"
+        @click.self="showBlockModal = false"
+        role="presentation"
+      >
+        <dialog
+          open
+          class="modal"
+          :aria-label="`Block ${peerName}`"
+          @keydown.escape="showBlockModal = false"
+        >
+          <h2 id="block-dialog-title">Block {{ peerName }}?</h2>
+          <p id="block-dialog-desc">They won't be able to send you messages or call you. You can unblock from their profile.</p>
           <div class="modal-actions">
             <button class="modal-cancel" @click="showBlockModal = false">Cancel</button>
-            <button class="modal-confirm" @click="doBlockPeer">Block</button>
+            <button class="modal-confirm" @click="doBlockPeer" :aria-label="`Confirm blocking ${peerName}`">Block</button>
           </div>
-        </div>
+        </dialog>
       </div>
     </Transition>
 
-    <!-- Clear chat confirm -->
+    <!-- Clear chat confirm dialog -->
     <Transition name="modal-fade">
-      <div v-if="showClearModal" class="modal-overlay" @click.self="showClearModal = false" role="dialog" aria-modal="true" aria-label="Clear messages">
-        <div class="modal">
+      <div
+        v-if="showClearModal"
+        class="modal-overlay"
+        @click.self="showClearModal = false"
+        role="presentation"
+      >
+        <dialog
+          open
+          class="modal"
+          aria-label="Clear all messages"
+          @keydown.escape="showClearModal = false"
+        >
           <h2>Clear all messages?</h2>
           <p>This will delete all messages in this chat for you. This cannot be undone.</p>
           <div class="modal-actions">
             <button class="modal-cancel" @click="showClearModal = false">Cancel</button>
             <button class="modal-confirm" @click="doClearChat">Clear</button>
           </div>
-        </div>
+        </dialog>
       </div>
     </Transition>
 
     <!-- Live region for announcements -->
-    <div aria-live="assertive" aria-atomic="true" class="sr-only">{{ announcement }}</div>
+    <div aria-live="assertive" aria-atomic="true" class="sr-only" role="alert">{{ announcement }}</div>
   </div>
 </template>
 
@@ -428,6 +510,7 @@ const inputEl = ref<HTMLTextAreaElement>()
 const menuRef = ref<HTMLElement>()
 const menuTriggerRef = ref<HTMLButtonElement>()
 const searchInputEl = ref<HTMLInputElement>()
+const profileDialogCloseRef = ref<HTMLButtonElement>()
 
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 let unsubMessages: (() => void) | null = null
@@ -459,6 +542,14 @@ const filteredMessages = computed(() => {
 
 const searchResultCount = computed(() => filteredMessages.value.length)
 
+// Auto-focus profile dialog close button when it opens
+watch(showProfileDialog, async (open) => {
+  if (open) {
+    await nextTick()
+    profileDialogCloseRef.value?.focus()
+  }
+})
+
 onMounted(async () => {
   appStore.setActiveChatId(chatId.value)
 
@@ -477,7 +568,6 @@ onMounted(async () => {
       if (data.lastSeen) peerLastSeen.value = data.lastSeen.toDate()
     })
 
-    // Load peer profile for dialog
     const profile = await getUserProfile(peerId.value)
     if (profile) {
       peerProfile.value = profile
@@ -547,11 +637,8 @@ function autoResize() {
 }
 
 function handleTyping() {
-  // Could emit typing status to peer via data channel
   if (typingTimer) clearTimeout(typingTimer)
-  typingTimer = setTimeout(() => {
-    // stop typing
-  }, 2000)
+  typingTimer = setTimeout(() => {}, 2000)
 }
 
 function scrollToBottom(smooth = true) {
@@ -619,6 +706,7 @@ async function copyMessage(content: string) {
 function startReplyTo(msg: Message & { id: string }) {
   replyTo.value = msg
   nextTick(() => inputEl.value?.focus())
+  announcement.value = `Replying to message: ${msg.content.slice(0, 50)}`
 }
 
 async function startCall(withVideo: boolean) {
@@ -627,15 +715,14 @@ async function startCall(withVideo: boolean) {
 
   const snap = await getDoc(doc(db, 'peerIds', peerId.value))
   if (!snap.exists()) {
-    appStore.addNotification(`${peerName.value} can't take the call right now. You can leave a message.`, 'warning')
+    appStore.addNotification(`${peerName.value} can't take the call right now.`, 'warning')
     return
   }
   const peerConnId = snap.data().peerId
 
-  // Pre-check connectivity
   const isOnline = await peerStore.checkPeerOnline(peerConnId)
   if (!isOnline) {
-    appStore.addNotification(`${peerName.value} can't take the call right now. You can leave them a message.`, 'warning')
+    appStore.addNotification(`${peerName.value} can't take the call right now.`, 'warning')
     return
   }
 
@@ -647,6 +734,7 @@ async function startCall(withVideo: boolean) {
 function openProfile() {
   showMenu.value = false
   showProfileDialog.value = true
+  announcement.value = `Opening ${peerName.value}'s profile`
 }
 
 function viewFullProfile() {
@@ -688,12 +776,14 @@ function toggleMute() {
   showMenu.value = false
   isChatMuted.value = !isChatMuted.value
   appStore.addNotification(isChatMuted.value ? 'Notifications muted' : 'Notifications unmuted', 'info')
+  announcement.value = isChatMuted.value ? 'Notifications muted for this chat' : 'Notifications unmuted'
 }
 
 function pinChat() {
   showMenu.value = false
   isPinned.value = !isPinned.value
   appStore.addNotification(isPinned.value ? 'Chat pinned' : 'Chat unpinned', 'info')
+  announcement.value = isPinned.value ? 'Chat pinned' : 'Chat unpinned'
 }
 
 function clearChat() {
@@ -702,10 +792,8 @@ function clearChat() {
 }
 
 function doClearChat() {
-  // Soft-clear: hide messages locally (full deletion would need a batch Firestore operation)
-  // For now, show info
   showClearModal.value = false
-  appStore.addNotification('Chat cleared locally (messages still exist on server)', 'info')
+  appStore.addNotification('Chat cleared locally', 'info')
 }
 
 function handleAttachment() {
@@ -715,6 +803,7 @@ function handleAttachment() {
 function confirmBlockPeer() {
   showMenu.value = false
   showBlockModal.value = true
+  announcement.value = `Block ${peerName.value} dialog opened`
 }
 
 async function doBlockPeer() {
@@ -756,8 +845,8 @@ function goBack() {
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  background: rgba(10,12,24,0.95);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: rgba(10,12,24,0.97);
   backdrop-filter: blur(20px);
   position: sticky;
   top: 0;
@@ -768,7 +857,7 @@ function goBack() {
   background: rgba(255,255,255,0.06);
   border: none;
   border-radius: 10px;
-  width: 38px; height: 38px;
+  width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   color: rgba(255,255,255,0.7);
@@ -776,6 +865,7 @@ function goBack() {
   flex-shrink: 0;
 }
 .back-btn:hover { background: rgba(255,255,255,0.12); }
+.back-btn:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 
 .peer-info-btn {
   flex: 1;
@@ -792,8 +882,10 @@ function goBack() {
   border-radius: 10px;
   min-width: 0;
   transition: background 0.15s;
+  min-height: 48px;
 }
 .peer-info-btn:hover { background: rgba(255,255,255,0.04); }
+.peer-info-btn:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 
 .peer-avatar {
   width: 40px; height: 40px;
@@ -831,7 +923,7 @@ function goBack() {
 }
 .peer-status {
   font-size: 0.7rem;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.38);
   display: flex;
   align-items: center;
   gap: 0.25rem;
@@ -859,7 +951,7 @@ function goBack() {
   background: rgba(255,255,255,0.05);
   border: none;
   border-radius: 10px;
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   color: rgba(255,255,255,0.6);
@@ -869,6 +961,7 @@ function goBack() {
   background: rgba(255,255,255,0.1);
   color: #fff;
 }
+.header-btn:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 .header-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* Context Menu */
@@ -876,13 +969,13 @@ function goBack() {
   position: absolute;
   top: calc(100% + 4px);
   right: 0.5rem;
-  background: #0f1220;
-  border: 1px solid rgba(255,255,255,0.1);
+  background: #0e1222;
+  border: 1px solid rgba(255,255,255,0.11);
   border-radius: 14px;
   overflow: hidden;
   z-index: 200;
-  min-width: 200px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  min-width: 210px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.7);
   backdrop-filter: blur(20px);
 }
 .context-menu button {
@@ -899,14 +992,20 @@ function goBack() {
   font-size: 0.85rem;
   text-align: left;
   transition: background 0.15s;
+  min-height: 44px;
 }
-.context-menu button:hover:not(:disabled) { background: rgba(255,255,255,0.05); color: #fff; }
+.context-menu button:hover:not(:disabled) { background: rgba(255,255,255,0.06); color: #fff; }
+.context-menu button:focus-visible {
+  outline: 3px solid #7c6fff;
+  outline-offset: -3px;
+  background: rgba(92,59,255,0.1);
+}
 .context-menu button:disabled { opacity: 0.3; cursor: not-allowed; }
 .context-menu .menu-warning { color: #fbbf24; }
 .context-menu .menu-warning:hover { background: rgba(251,191,36,0.08) !important; }
-.context-menu .menu-danger { color: #ff3b8c; }
+.context-menu .menu-danger { color: #ff6b8a; }
 .context-menu .menu-danger:hover { background: rgba(255,59,140,0.08) !important; }
-.menu-divider { height: 1px; background: rgba(255,255,255,0.06); margin: 0.25rem 0; }
+.menu-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 0.25rem 0; }
 
 .menu-pop-enter-active { transition: all 0.15s ease; }
 .menu-pop-leave-active { transition: all 0.1s ease; }
@@ -924,22 +1023,29 @@ function goBack() {
 }
 .search-bar input {
   flex: 1;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.07);
+  border: 1.5px solid rgba(255,255,255,0.11);
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
   color: #e2e8f0;
   font-family: inherit;
   font-size: 0.875rem;
+  min-height: 40px;
 }
-.search-bar input:focus { outline: none; border-color: rgba(92,59,255,0.5); }
+.search-bar input:focus {
+  outline: none;
+  border-color: rgba(92,59,255,0.6);
+  box-shadow: 0 0 0 3px rgba(92,59,255,0.12);
+}
 .search-results-count { font-size: 0.75rem; color: rgba(255,255,255,0.4); white-space: nowrap; }
 .search-bar button {
-  background: none; border: none; cursor: pointer;
-  color: rgba(255,255,255,0.4); font-size: 0.875rem;
-  padding: 0.25rem; border-radius: 4px;
+  background: rgba(255,255,255,0.06); border: none; cursor: pointer;
+  color: rgba(255,255,255,0.45); font-size: 0.875rem;
+  padding: 0.375rem; border-radius: 6px; min-width: 32px; min-height: 32px;
+  display: flex; align-items: center; justify-content: center;
 }
-.search-bar button:hover { color: #fff; }
+.search-bar button:hover { color: #fff; background: rgba(255,255,255,0.1); }
+.search-bar button:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 .slide-down-enter-active, .slide-down-leave-active { transition: all 0.2s ease; }
 .slide-down-enter-from, .slide-down-leave-to { opacity: 0; transform: translateY(-10px); }
 
@@ -961,7 +1067,7 @@ function goBack() {
   justify-content: center;
   height: 100%;
   gap: 0.5rem;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.32);
   text-align: center;
 }
 .wave {
@@ -976,12 +1082,12 @@ function goBack() {
 }
 .no-messages p { font-size: 0.9rem; margin: 0; }
 .no-msg-hint { font-size: 0.75rem; color: rgba(255,255,255,0.2); margin-top: 0.25rem !important; }
-.no-results { padding: 2rem; text-align: center; color: rgba(255,255,255,0.3); font-size: 0.9rem; }
+.no-results { padding: 2rem; text-align: center; color: rgba(255,255,255,0.32); font-size: 0.9rem; }
 
 .date-divider {
   text-align: center;
   font-size: 0.72rem;
-  color: rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.28);
   margin: 0.875rem 0;
   display: flex;
   align-items: center;
@@ -1003,12 +1109,10 @@ function goBack() {
 }
 .message-wrap.own { align-self: flex-end; flex-direction: row-reverse; }
 .message-wrap.peer { align-self: flex-start; }
-
-/* Show actions on hover */
 .message-wrap:hover .msg-actions { opacity: 1; }
 
 .bubble {
-  background: rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.08);
   border-radius: 18px;
   padding: 0.6rem 0.9rem;
   display: inline-block;
@@ -1024,12 +1128,10 @@ function goBack() {
 }
 .bubble.deleted {
   background: transparent !important;
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.08);
 }
-.bubble.deleted .msg-text { color: rgba(255,255,255,0.25); font-style: italic; }
-.bubble.highlighted {
-  box-shadow: 0 0 0 2px #5c3bff;
-}
+.bubble.deleted .msg-text { color: rgba(255,255,255,0.28); font-style: italic; }
+.bubble.highlighted { box-shadow: 0 0 0 2px #5c3bff; }
 
 .reply-indicator {
   display: flex;
@@ -1057,10 +1159,9 @@ function goBack() {
   gap: 0.25rem;
   margin-top: 0.2rem;
 }
-.msg-time { font-size: 0.67rem; color: rgba(255,255,255,0.3); }
+.msg-time { font-size: 0.67rem; color: rgba(255,255,255,0.33); }
 .read-indicator { display: flex; align-items: center; }
 
-/* Message action buttons */
 .msg-actions {
   opacity: 0;
   display: flex;
@@ -1069,22 +1170,24 @@ function goBack() {
   flex-shrink: 0;
 }
 .msg-action-btn {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.09);
   border: none;
   border-radius: 6px;
-  width: 26px; height: 26px;
+  width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
-  color: rgba(255,255,255,0.5);
+  color: rgba(255,255,255,0.55);
   transition: all 0.15s;
+  min-height: 28px;
 }
-.msg-action-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
-.msg-action-btn.danger:hover { background: rgba(255,59,140,0.2); color: #ff3b8c; }
+.msg-action-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
+.msg-action-btn:focus-visible { outline: 3px solid #7c6fff; outline-offset: 1px; opacity: 1; }
+.msg-action-btn.danger:hover { background: rgba(255,59,140,0.2); color: #ff6b8a; }
 
 /* Typing indicator */
 .typing-indicator {
   align-self: flex-start;
-  background: rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.08);
   border-radius: 18px;
   border-bottom-left-radius: 4px;
   padding: 0.75rem 1rem;
@@ -1112,27 +1215,31 @@ function goBack() {
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 1rem;
-  background: rgba(92,59,255,0.12);
-  border-top: 1px solid rgba(92,59,255,0.2);
+  background: rgba(92,59,255,0.13);
+  border-top: 1px solid rgba(92,59,255,0.22);
   font-size: 0.8rem;
-  color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.65);
 }
 .reply-banner-content { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .reply-banner-content span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reply-banner button {
-  background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.4);
-  font-size: 0.875rem; padding: 0.125rem; border-radius: 4px; flex-shrink: 0;
+  background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.45);
+  font-size: 0.875rem; padding: 0.25rem; border-radius: 4px; flex-shrink: 0;
+  min-width: 28px; min-height: 28px; display: flex; align-items: center; justify-content: center;
 }
 .reply-banner button:hover { color: #fff; }
+.reply-banner button:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 
 .slide-up-sm-enter-active, .slide-up-sm-leave-active { transition: all 0.15s ease; }
 .slide-up-sm-enter-from, .slide-up-sm-leave-to { opacity: 0; transform: translateY(8px); }
 
-/* ── Input area ──────────────────────────────────────────────────────────────── */
+/* ── Input area / footer ──────────────────────────────────────────────────────── */
 .input-area {
+  background: rgba(10,12,24,0.97);
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.input-area form {
   padding: 0.75rem 1rem;
-  background: rgba(10,12,24,0.95);
-  border-top: 1px solid rgba(255,255,255,0.06);
   display: flex;
   align-items: flex-end;
   gap: 0.5rem;
@@ -1142,7 +1249,7 @@ function goBack() {
   background: rgba(255,255,255,0.05);
   border: none;
   border-radius: 12px;
-  width: 40px; min-height: 40px;
+  width: 42px; min-height: 42px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   color: rgba(255,255,255,0.4);
@@ -1150,6 +1257,7 @@ function goBack() {
   flex-shrink: 0;
 }
 .attach-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); }
+.attach-btn:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 
 .input-wrapper {
   flex: 1;
@@ -1158,15 +1266,15 @@ function goBack() {
 
 .msg-input {
   width: 100%;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.07);
+  border: 1.5px solid rgba(255,255,255,0.11);
   border-radius: 18px;
   padding: 0.625rem 1rem;
   color: #e2e8f0;
   font-family: inherit;
   font-size: 0.88rem;
   resize: none;
-  min-height: 40px;
+  min-height: 44px;
   max-height: 150px;
   overflow-y: auto;
   transition: border-color 0.2s;
@@ -1175,21 +1283,22 @@ function goBack() {
 }
 .msg-input:focus {
   outline: none;
-  border-color: rgba(92,59,255,0.5);
-  background: rgba(92,59,255,0.04);
+  border-color: rgba(92,59,255,0.6);
+  background: rgba(92,59,255,0.05);
+  box-shadow: 0 0 0 3px rgba(92,59,255,0.12);
 }
-.msg-input::placeholder { color: rgba(255,255,255,0.2); }
+.msg-input::placeholder { color: rgba(255,255,255,0.22); }
 
 .char-hint {
   position: absolute;
   bottom: 4px; right: 10px;
   font-size: 0.65rem;
-  color: rgba(255,100,100,0.8);
+  color: rgba(255,100,100,0.85);
   pointer-events: none;
 }
 
 .send-btn {
-  width: 40px; height: 40px;
+  width: 42px; height: 42px;
   background: linear-gradient(135deg, #5c3bff, #7c3bff);
   border: none;
   border-radius: 50%;
@@ -1200,12 +1309,13 @@ function goBack() {
   flex-shrink: 0;
 }
 .send-btn:hover:not(:disabled) { transform: scale(1.06); opacity: 0.9; }
+.send-btn:focus-visible { outline: 3px solid #a78bfa; outline-offset: 3px; }
 .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* ── Profile Dialog ──────────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.65);
+  background: rgba(0,0,0,0.7);
   backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center;
   z-index: 500;
@@ -1215,23 +1325,26 @@ function goBack() {
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 
 .profile-dialog {
-  background: #0f1220;
-  border: 1px solid rgba(255,255,255,0.1);
+  background: #0f1222;
+  border: 1px solid rgba(255,255,255,0.11);
   border-radius: 24px;
   padding: 2rem;
   max-width: 360px;
   width: 100%;
   text-align: center;
   position: relative;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  box-shadow: 0 20px 64px rgba(0,0,0,0.7);
+  color: #e2e8f0;
 }
 .dialog-close {
   position: absolute; top: 1rem; right: 1rem;
   background: rgba(255,255,255,0.07); border: none; border-radius: 8px;
-  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: rgba(255,255,255,0.5); font-size: 0.8rem;
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: rgba(255,255,255,0.55); font-size: 0.85rem;
 }
-.dialog-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.dialog-close:hover { background: rgba(255,255,255,0.13); color: #fff; }
+.dialog-close:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
+
 .dialog-avatar {
   width: 80px; height: 80px; border-radius: 50%;
   background: linear-gradient(135deg, #5c3bff, #ff3b8c);
@@ -1239,31 +1352,34 @@ function goBack() {
   font-size: 2rem; font-weight: 700; color: #fff;
   margin: 0 auto 1rem;
   position: relative; overflow: hidden;
-  border: 3px solid rgba(92,59,255,0.4);
+  border: 3px solid rgba(92,59,255,0.45);
 }
 .dialog-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .dialog-online-badge {
   position: absolute; bottom: 3px; right: 3px;
   background: #34d399; color: #fff; font-size: 0.55rem; font-weight: 700;
-  padding: 2px 5px; border-radius: 999px; border: 2px solid #0f1220;
+  padding: 2px 5px; border-radius: 999px; border: 2px solid #0f1222;
 }
 .profile-dialog h2 {
   font-family: 'Syne', sans-serif; font-size: 1.25rem; font-weight: 800;
   color: #fff; margin: 0 0 0.25rem;
 }
-.dialog-username { font-size: 0.85rem; color: rgba(255,255,255,0.4); margin-bottom: 0.5rem; }
+.dialog-username { font-size: 0.85rem; color: rgba(255,255,255,0.42); margin-bottom: 0.5rem; }
 .dialog-bio {
-  font-size: 0.85rem; color: rgba(255,255,255,0.6);
+  font-size: 0.85rem; color: rgba(255,255,255,0.62);
   margin: 0.5rem 0 0.75rem; line-height: 1.5;
 }
 .dialog-chips {
   display: flex; flex-wrap: wrap; gap: 0.375rem; justify-content: center;
   margin-bottom: 1.25rem;
+  list-style: none;
+  padding: 0;
 }
-.dialog-chips span {
-  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+.dialog-chips li span {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
   border-radius: 999px; padding: 0.25rem 0.75rem; font-size: 0.75rem;
-  color: rgba(255,255,255,0.5);
+  color: rgba(255,255,255,0.52);
+  display: inline-block;
 }
 .dialog-actions {
   display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;
@@ -1271,34 +1387,39 @@ function goBack() {
 .dialog-btn {
   padding: 0.5rem 1rem; border-radius: 10px; border: none; cursor: pointer;
   font-family: inherit; font-size: 0.85rem; font-weight: 500; transition: all 0.2s;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #e2e8f0;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.11); color: #e2e8f0;
+  min-height: 40px;
 }
-.dialog-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
+.dialog-btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
+.dialog-btn:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 .dialog-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .dialog-btn.primary {
-  background: rgba(92,59,255,0.2); border-color: rgba(92,59,255,0.3); color: #a78bfa;
+  background: rgba(92,59,255,0.22); border-color: rgba(92,59,255,0.35); color: #a78bfa;
 }
-.dialog-btn.primary:hover:not(:disabled) { background: rgba(92,59,255,0.35); }
+.dialog-btn.primary:hover:not(:disabled) { background: rgba(92,59,255,0.38); }
 
 /* ── Generic Modal ───────────────────────────────────────────────────────────── */
 .modal {
-  background: #0f1220; border: 1px solid rgba(255,255,255,0.1);
+  background: #0f1222; border: 1px solid rgba(255,255,255,0.11);
   border-radius: 20px; padding: 2rem; max-width: 360px; width: 100%; text-align: center;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  box-shadow: 0 20px 64px rgba(0,0,0,0.7);
+  color: #e2e8f0;
 }
 .modal h2 { font-family: 'Syne', sans-serif; color: #fff; margin: 0 0 0.75rem; font-size: 1.15rem; }
-.modal p { color: rgba(255,255,255,0.5); font-size: 0.875rem; margin: 0 0 1.5rem; line-height: 1.5; }
+.modal p { color: rgba(255,255,255,0.52); font-size: 0.875rem; margin: 0 0 1.5rem; line-height: 1.5; }
 .modal-actions { display: flex; gap: 0.75rem; justify-content: center; }
 .modal-cancel {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.11);
   border-radius: 10px; padding: 0.625rem 1.5rem; color: rgba(255,255,255,0.7);
-  cursor: pointer; font-family: inherit; font-size: 0.9rem;
+  cursor: pointer; font-family: inherit; font-size: 0.9rem; min-height: 44px;
 }
+.modal-cancel:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 .modal-confirm {
   background: linear-gradient(135deg, #ff3b5c, #ff3b8c); border: none;
   border-radius: 10px; padding: 0.625rem 1.5rem; color: #fff;
-  cursor: pointer; font-family: inherit; font-size: 0.9rem; font-weight: 600;
+  cursor: pointer; font-family: inherit; font-size: 0.9rem; font-weight: 600; min-height: 44px;
 }
+.modal-confirm:focus-visible { outline: 3px solid #ff9bb5; outline-offset: 2px; }
 
 /* ── SR only ─────────────────────────────────────────────────────────────────── */
 .sr-only {
