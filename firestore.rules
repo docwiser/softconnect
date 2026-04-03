@@ -100,5 +100,83 @@ service cloud.firestore {
 
       allow delete: if false;
     }
+    // ─────────────────────────────────────────────
+    // Meetings Collection
+    // ─────────────────────────────────────────────
+    match /meetings/{meetingId} {
+
+      function isAuth() {
+        return request.auth != null;
+      }
+
+      function isHost() {
+        return isAuth() && resource.data.hostUid == request.auth.uid;
+      }
+
+      function isParticipant() {
+        return isAuth() &&
+          request.auth.uid in resource.data.participants;
+      }
+
+      function isCoHost() {
+        return isParticipant() &&
+          resource.data.participants[request.auth.uid].role == 'co-host';
+      }
+
+      function canManage() {
+        return isHost() || isCoHost();
+      }
+
+      // ─── READ ─────────────────────────────
+      allow get: if isAuth();
+      allow list: if isParticipant() || isHost();
+
+      // ─── CREATE ───────────────────────────
+      allow create: if isAuth()
+        && request.resource.data.hostUid == request.auth.uid;
+
+      // ─── UPDATE ───────────────────────────
+      allow update: if isAuth() && (
+        // Host can do anything
+        isHost()
+
+        // Co-host can manage participants/settings (limited)
+        || (
+          isCoHost()
+          && request.resource.data.hostUid == resource.data.hostUid
+        )
+
+        // Participant can update ONLY their own state
+        || (
+          isParticipant()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              "participants." + request.auth.uid
+            ])
+        )
+      );
+
+      // ─── DELETE ───────────────────────────
+      allow delete: if isHost();
+
+      // ─────────────────────────────────────
+      // Chat Subcollection
+      // ─────────────────────────────────────
+      match /chat/{messageId} {
+
+        function isParticipant() {
+          return request.auth != null &&
+            request.auth.uid in get(/databases/$(database)/documents/meetings/$(meetingId)).data.participants;
+        }
+
+        allow read: if isParticipant();
+
+        allow create: if isParticipant()
+          && request.resource.data.senderUid == request.auth.uid;
+
+        allow delete: if false; // no deletes for now
+        allow update: if false;
+      }
+    }
   }
 }

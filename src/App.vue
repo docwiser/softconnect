@@ -1,7 +1,5 @@
 <template>
   <div id="app">
-    <!-- Skip to main content link for keyboard users -->
-    <a href="#main-content" class="skip-link">Skip to main content</a>
 
     <!-- Global incoming call banner (shows on any screen except /call) -->
     <Transition name="call-banner">
@@ -67,7 +65,6 @@
       aria-live="polite"
       aria-atomic="true"
       class="route-announcer"
-      aria-label="Navigation announcement"
     >{{ routeAnnouncement }}</div>
   </div>
 </template>

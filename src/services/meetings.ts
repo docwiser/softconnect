@@ -112,10 +112,10 @@ function generateMeetingCode(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
   let code = ''
   for (let i = 0; i < 10; i++) {
-    if (i === 3 || i === 7) code += '-'
-    else code += chars[Math.floor(Math.random() * chars.length)]
+    code += chars[Math.floor(Math.random() * chars.length)]
   }
-  return code
+  // Format as xxx-xxxx-xxx
+  return code.slice(0, 3) + '-' + code.slice(3, 7) + '-' + code.slice(7)
 }
 
 // ─── CRUD ─────────────────────────────────────────────────────────────────────
@@ -132,8 +132,8 @@ export async function createMeeting(data: {
   const user = auth.currentUser
   if (!user) throw new Error('Not authenticated')
 
-  const meetingId = doc(collection(db, 'meetings')).id
   const meetingCode = generateMeetingCode()
+  const meetingId = meetingCode // Use code as ID for easy lookup
   const inviteLink = `${window.location.origin}/join/${meetingCode}`
 
   const hostParticipant: MeetingParticipant = {
@@ -186,14 +186,8 @@ export async function getMeetingById(meetingId: string): Promise<Meeting | null>
 }
 
 export async function getMeetingByCode(code: string): Promise<Meeting | null> {
-  const q = query(
-    collection(db, 'meetings'),
-    where('meetingCode', '==', code),
-    limit(1)
-  )
-  const snap = await getDocs(q)
-  if (snap.empty) return null
-  return { id: snap.docs[0].id, ...snap.docs[0].data() } as Meeting
+  // We use meetingCode as the document ID for direct lookup
+  return getMeetingById(code)
 }
 
 export async function updateMeetingSettings(
