@@ -150,8 +150,8 @@ service cloud.firestore {
         // OR a new participant can join by adding themselves
         || (
           request.resource.data.hostUid == resource.data.hostUid
-          && request.resource.data.diff(resource.data).affectedKeys().all(k,
-               k.matches('participants\\.' + request.auth.uid + '($|\\..*)'))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants'])
+          && request.resource.data.participants.diff(resource.data.participants).affectedKeys().hasOnly([request.auth.uid])
           && (
             // If already a participant, ensure role hasn't changed
             (isParticipant() && request.resource.data.participants[request.auth.uid].role == resource.data.participants[request.auth.uid].role)

@@ -1,8 +1,25 @@
 // src/stores/meeting.ts
+// ─────────────────────────────────────────────────────────────────────────────
+// Soft Connect — Meeting Store (Cloudflare Realtime SFU edition)
+//
+// Media (audio + video):   Cloudflare Realtime SFU (WebRTC, 1 PeerConnection per client)
+// Control state (rapid):   Firestore updateDoc (mute/video/hand/speaking/screenShare)
+//                          — batched with 300 ms debounce to minimise writes
+// Chat + roster + presence: Firestore onSnapshot (opened only when panel is open,
+//                            roster always open while in-meeting)
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw } from 'vue'
-import Peer from 'peerjs'
-import type { MediaConnection, DataConnection } from 'peerjs'
+import {
+  sfuCreateSession,
+  sfuAddTracks,
+  sfuRenegotiate,
+  sfuCloseTracks,
+  SFU_ICE_SERVERS,
+  type SfuTrackDescriptor,
+  type SfuTracksResponse,
+} from '../services/cloudflare-sfu'
 import {
   joinMeeting,
   leaveMeeting,
@@ -21,16 +38,18 @@ import {
   type Meeting,
   type MeetingParticipant,
   type MeetingChatMessage,
-  type MeetingSettings
+  type MeetingSettings,
 } from '../services/meetings'
 import { auth } from '../services/firebase'
 
+// ── Types ────────────────────────────────────────────────────────────────────
+
 export interface RemoteStream {
   uid: string
-  peerId: string
   stream: MediaStream
   displayName: string
   photoURL: string | null
+  // These mirror Firestore participant state (updated via onSnapshot)
   isAudioMuted: boolean
   isVideoOff: boolean
   isScreenSharing: boolean
@@ -44,482 +63,433 @@ export interface MeetingNotification {
   type: 'info' | 'warning' | 'success' | 'error'
 }
 
+// ── Store ─────────────────────────────────────────────────────────────────────
+
 export const useMeetingStore = defineStore('meeting', () => {
-  // ─── State ─────────────────────────────────────────────────────────────────
-  const meeting = ref<Meeting | null>(null)
-  const meetingId = ref<string | null>(null)
-  const isInMeeting = ref(false)
-  const isHost = ref(false)
-  const isCoHost = ref(false)
 
-  // Local media
-  const localStream = ref<MediaStream | null>(null)
-  const screenStream = ref<MediaStream | null>(null)
-  const isAudioMuted = ref(false)
-  const isVideoOff = ref(false)
+  // ── Persistent meeting state ───────────────────────────────────────────────
+  const meeting       = ref<Meeting | null>(null)
+  const meetingId     = ref<string | null>(null)
+  const isInMeeting   = ref(false)
+  const isHost        = ref(false)
+  const isCoHost      = ref(false)
+
+  // ── Local media state ──────────────────────────────────────────────────────
+  const localStream     = ref<MediaStream | null>(null)
+  const screenStream    = ref<MediaStream | null>(null)
+  const isAudioMuted    = ref(false)
+  const isVideoOff      = ref(false)
   const isScreenSharing = ref(false)
-  const isHandRaised = ref(false)
-  const isSpeaking = ref(false)
+  const isHandRaised    = ref(false)
+  const isSpeaking      = ref(false)
 
-  // Remote peers
+  // ── SFU PeerConnection ────────────────────────────────────────────────────
+  const sfuSessionId = ref<string>('')
+  let   pc: RTCPeerConnection | null = null
+
+  // Published track names (used to pull remote tracks later)
+  const myAudioTrackName = ref('')
+  const myVideoTrackName = ref('')
+  const myScreenTrackName = ref('')
+
+  // map: uid → { audioTrackName, videoTrackName }
+  // Written to Firestore participant doc so peers know what to pull
+  // Read from Firestore participant docs of other users
+  const remotePulled = ref<Set<string>>(new Set()) // uids we have pulled tracks for
+
+  // ── Remote streams ────────────────────────────────────────────────────────
   const remoteStreams = ref<Map<string, RemoteStream>>(new Map())
-  const dataConnections = ref<Map<string, DataConnection>>(new Map())
-  const mediaConnections = ref<Map<string, MediaConnection>>(new Map())
 
-  // PeerJS
-  const peer = ref<Peer | null>(null)
-  const myPeerId = ref<string>('')
-
-  // Chat
-  const chatMessages = ref<MeetingChatMessage[]>([])
+  // ── Chat ──────────────────────────────────────────────────────────────────
+  const chatMessages    = ref<MeetingChatMessage[]>([])
   const unreadChatCount = ref(0)
-  const isChatOpen = ref(false)
+  const isChatOpen      = ref(false)
 
-  // UI state
-  const layout = ref<'grid' | 'spotlight' | 'sidebar'>('grid')
-  const spotlightUid = ref<string | null>(null)
-  const notifications = ref<MeetingNotification[]>([])
-  const isSettingsPanelOpen = ref(false)
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const layout                  = ref<'grid' | 'spotlight' | 'sidebar'>('grid')
+  const spotlightUid            = ref<string | null>(null)
+  const notifications           = ref<MeetingNotification[]>([])
+  const isSettingsPanelOpen     = ref(false)
   const isParticipantsPanelOpen = ref(false)
-  const handRaisedQueue = ref<string[]>([])
-  const isRecording = ref(false)
-  const recordingChunks = ref<BlobPart[]>([])
-  const mediaRecorder = ref<MediaRecorder | null>(null)
+  const handRaisedQueue         = ref<string[]>([])
+  const isRecording             = ref(false)
 
   // Devices
-  const audioInputs = ref<MediaDeviceInfo[]>([])
-  const audioOutputs = ref<MediaDeviceInfo[]>([])
-  const videoInputs = ref<MediaDeviceInfo[]>([])
-  const selectedAudioInput = ref<string>('')
-  const selectedAudioOutput = ref<string>('')
-  const selectedVideoInput = ref<string>('')
-  const playbackSpeed = ref(1.0)
+  const audioInputs       = ref<MediaDeviceInfo[]>([])
+  const audioOutputs      = ref<MediaDeviceInfo[]>([])
+  const videoInputs       = ref<MediaDeviceInfo[]>([])
+  const selectedAudioInput  = ref('')
+  const selectedAudioOutput = ref('')
+  const selectedVideoInput  = ref('')
+  const playbackSpeed       = ref(1.0)
 
-  // Subscriptions
+  // ── Recording ─────────────────────────────────────────────────────────────
+  let mediaRecorder: MediaRecorder | null = null
+  let recordingChunks: BlobPart[] = []
+
+  // ── Firestore unsubs ──────────────────────────────────────────────────────
   let unsubMeeting: (() => void) | null = null
-  let unsubChat: (() => void) | null = null
-  let speakingDetector: ReturnType<typeof setInterval> | null = null
-  let audioContext: AudioContext | null = null
-  let analyser: AnalyserNode | null = null
+  let unsubChat:    (() => void) | null = null
 
-  // ─── Computed ─────────────────────────────────────────────────────────────
+  // ── Speaking detection ────────────────────────────────────────────────────
+  let audioCtx: AudioContext | null = null
+  let analyserNode: AnalyserNode | null = null
+  let speakingInterval: ReturnType<typeof setInterval> | null = null
+
+  // ── State debounce timer ──────────────────────────────────────────────────
+  let stateFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+  // ── Computed ──────────────────────────────────────────────────────────────
   const activeParticipants = computed(() => {
     if (!meeting.value) return []
-    return Object.values(meeting.value.participants).filter(
-      p => p.status === 'joined'
-    )
+    return Object.values(meeting.value.participants).filter(p => p.status === 'joined')
   })
 
   const waitingParticipants = computed(() => {
     if (!meeting.value) return []
-    return Object.values(meeting.value.participants).filter(
-      p => p.status === 'waiting'
-    )
+    return Object.values(meeting.value.participants).filter(p => p.status === 'waiting')
   })
 
-  const myParticipant = computed(() => {
+  const myParticipant = computed<MeetingParticipant | null>(() => {
     const uid = auth.currentUser?.uid
     if (!uid || !meeting.value) return null
-    return meeting.value.participants[uid] || null
+    return meeting.value.participants[uid] ?? null
   })
 
   const remoteStreamsArray = computed(() => Array.from(remoteStreams.value.values()))
-
   const canManageParticipants = computed(() => isHost.value || isCoHost.value)
 
-  // ─── Device Enumeration ────────────────────────────────────────────────────
+  // ── Device enumeration ────────────────────────────────────────────────────
   async function enumerateDevices(): Promise<void> {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices()
-      audioInputs.value = devices.filter(d => d.kind === 'audioinput')
+      audioInputs.value  = devices.filter(d => d.kind === 'audioinput')
       audioOutputs.value = devices.filter(d => d.kind === 'audiooutput')
-      videoInputs.value = devices.filter(d => d.kind === 'videoinput')
-      if (!selectedAudioInput.value && audioInputs.value[0]) {
+      videoInputs.value  = devices.filter(d => d.kind === 'videoinput')
+      if (!selectedAudioInput.value && audioInputs.value[0])
         selectedAudioInput.value = audioInputs.value[0].deviceId
-      }
-      if (!selectedAudioOutput.value && audioOutputs.value[0]) {
+      if (!selectedAudioOutput.value && audioOutputs.value[0])
         selectedAudioOutput.value = audioOutputs.value[0].deviceId
-      }
-      if (!selectedVideoInput.value && videoInputs.value[0]) {
+      if (!selectedVideoInput.value && videoInputs.value[0])
         selectedVideoInput.value = videoInputs.value[0].deviceId
-      }
     } catch (e) {
-      console.warn('Could not enumerate devices:', e)
+      console.warn('[SFU] Could not enumerate devices:', e)
     }
   }
 
-  // ─── Local Media ──────────────────────────────────────────────────────────
-  async function getLocalMedia(options: {
-    audio: boolean
-    video: boolean
-    audioDeviceId?: string
-    videoDeviceId?: string
-  }): Promise<MediaStream> {
-    const constraints: MediaStreamConstraints = {
-      audio: options.audio
-        ? { deviceId: options.audioDeviceId ? { ideal: options.audioDeviceId } : undefined }
-        : false,
-      video: options.video
-        ? { deviceId: options.videoDeviceId ? { ideal: options.videoDeviceId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 } }
-        : false
-    }
-    const stream = await navigator.mediaDevices.getUserMedia(constraints)
-    return stream
-  }
-
+  // ── Local media init ──────────────────────────────────────────────────────
   async function initLocalStream(audioEnabled: boolean, videoEnabled: boolean): Promise<void> {
-    try {
-      const stream = await getLocalMedia({
-        audio: true,
-        video: true,
-        audioDeviceId: selectedAudioInput.value,
-        videoDeviceId: selectedVideoInput.value
-      })
-      localStream.value = stream
-
-      // Apply initial mute states
-      stream.getAudioTracks().forEach(t => { t.enabled = audioEnabled })
-      stream.getVideoTracks().forEach(t => { t.enabled = videoEnabled })
-
-      isAudioMuted.value = !audioEnabled
-      isVideoOff.value = !videoEnabled
-
-      startSpeakingDetection(stream)
-    } catch (e: any) {
-      // Try audio-only if video fails
-      try {
-        const audioOnly = await getLocalMedia({ audio: true, video: false })
-        localStream.value = audioOnly
-        isAudioMuted.value = !audioEnabled
-        isVideoOff.value = true
-        startSpeakingDetection(audioOnly)
-        addNotification('Camera not available — joined with audio only', 'warning')
-      } catch {
-        throw new Error('Could not access microphone')
-      }
+    const constraints: MediaStreamConstraints = {
+      audio: {
+        deviceId: selectedAudioInput.value ? { ideal: selectedAudioInput.value } : undefined,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+      video: videoEnabled
+        ? {
+            deviceId: selectedVideoInput.value ? { ideal: selectedVideoInput.value } : undefined,
+            width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 },
+          }
+        : false,
     }
+    try {
+      localStream.value = await navigator.mediaDevices.getUserMedia(constraints)
+    } catch {
+      // Fallback: audio only
+      localStream.value = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      isVideoOff.value = true
+      addNotification('Camera unavailable — joined with audio only', 'warning')
+    }
+    localStream.value.getAudioTracks().forEach(t => { t.enabled = audioEnabled })
+    localStream.value.getVideoTracks().forEach(t => { t.enabled = videoEnabled })
+    isAudioMuted.value = !audioEnabled
+    isVideoOff.value   = !videoEnabled
+    startSpeakingDetection(localStream.value)
   }
 
   function startSpeakingDetection(stream: MediaStream): void {
     try {
-      audioContext = new AudioContext()
-      const source = audioContext.createMediaStreamSource(stream)
-      analyser = audioContext.createAnalyser()
-      analyser.fftSize = 512
-      source.connect(analyser)
-      const dataArray = new Uint8Array(analyser.frequencyBinCount)
-
-      speakingDetector = setInterval(() => {
-        if (!analyser) return
-        analyser.getByteFrequencyData(dataArray)
-        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
+      audioCtx = new AudioContext()
+      const src = audioCtx.createMediaStreamSource(stream)
+      analyserNode = audioCtx.createAnalyser()
+      analyserNode.fftSize = 512
+      src.connect(analyserNode)
+      const data = new Uint8Array(analyserNode.frequencyBinCount)
+      speakingInterval = setInterval(() => {
+        if (!analyserNode) return
+        analyserNode.getByteFrequencyData(data)
+        const avg = data.reduce((a, b) => a + b, 0) / data.length
         const speaking = avg > 15 && !isAudioMuted.value
         if (speaking !== isSpeaking.value) {
           isSpeaking.value = speaking
-          if (meetingId.value && auth.currentUser) {
-            updateParticipantState(meetingId.value, auth.currentUser.uid, { isSpeaking: speaking })
-          }
+          scheduleStateFlush()
         }
       }, 300)
     } catch {}
   }
 
-  // ─── PeerJS Setup ──────────────────────────────────────────────────────────
-  async function initPeer(uid: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      if (peer.value && !peer.value.destroyed) {
-        resolve(myPeerId.value)
-        return
+  // ── SFU PeerConnection setup ──────────────────────────────────────────────
+
+  function createPeerConnection(): RTCPeerConnection {
+    const newPc = new RTCPeerConnection({ iceServers: SFU_ICE_SERVERS })
+
+    // Gather all remote tracks into per-uid MediaStreams
+    newPc.ontrack = ({ track, streams }) => {
+      // streams[0] contains the MediaStream; we tag the stream with uid via
+      // track.id convention: we name tracks as `{uid}:audio` and `{uid}:video`
+      // Parse uid from track.id (our convention below)
+      const [uid, kind] = (track.id || '').split(':')
+      if (!uid || !kind) return
+      updateOrCreateRemoteStream(uid, track, kind as 'audio' | 'video')
+    }
+
+    newPc.onicecandidate = () => {
+      // ICE candidates are handled transparently by Cloudflare (no trickle needed)
+    }
+
+    newPc.onconnectionstatechange = () => {
+      if (newPc.connectionState === 'failed') {
+        addNotification('SFU connection lost — attempting to reconnect…', 'warning')
+        // Simple reconnect: re-publish tracks
+        setTimeout(() => republishTracks(), 3000)
       }
+    }
 
-      const peerId = `sc_${uid}`
-      const p = new Peer(peerId, {
-        debug: 0,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            {
-              urls: 'turn:turn.speed.cloudflare.com:50000',
-              username: '42e3c6df2be45b0bc95bfe58bd6fe8ee7a24577911658e690afedbb9c01889e3f5e086df4ccf543ecb6eaf2fe8402529eeb6d46a57bfdbf376aabd191f6d5947',
-              credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e3b5fa7c8342b2e9802fb'
-            }
-          ],
-          sdpSemantics: 'unified-plan'
-        }
-      })
-
-      const timeout = setTimeout(() => reject(new Error('Peer init timeout')), 15000)
-
-      p.on('open', id => {
-        clearTimeout(timeout)
-        peer.value = markRaw(p)
-        myPeerId.value = id
-        setupPeerListeners()
-        resolve(id)
-      })
-
-      p.on('error', err => {
-        clearTimeout(timeout)
-        // Handle duplicate ID by appending suffix
-        if ((err as any).type === 'unavailable-id') {
-          const fallback = new Peer(`sc_${uid}_${Date.now()}`, (p as any)._options)
-          fallback.on('open', id => {
-            peer.value = markRaw(fallback)
-            myPeerId.value = id
-            setupPeerListeners()
-            resolve(id)
-          })
-          fallback.on('error', reject)
-        } else {
-          reject(err)
-        }
-      })
-    })
+    return newPc
   }
 
-  function setupPeerListeners(): void {
-    if (!peer.value) return
-
-    // Incoming media call
-    peer.value.on('call', (call: MediaConnection) => {
-      if (!localStream.value) return
-      call.answer(localStream.value)
-      handleMediaConnection(call)
-    })
-
-    // Incoming data connection
-    peer.value.on('connection', (conn: DataConnection) => {
-      conn.on('open', () => {
-        dataConnections.value.set(conn.peer, conn)
-        conn.on('data', (data: unknown) => handleDataMessage(conn.peer, data as any))
-        conn.on('close', () => dataConnections.value.delete(conn.peer))
-      })
-    })
-
-    peer.value.on('disconnected', () => {
-      setTimeout(() => peer.value?.reconnect(), 3000)
-    })
-  }
-
-  function handleMediaConnection(call: MediaConnection): void {
-    mediaConnections.value.set(call.peer, markRaw(call))
-
-    call.on('stream', (stream: MediaStream) => {
-      // Find participant by peerId
-      const participant = findParticipantByPeerId(call.peer)
-      if (!participant) return
-
-      remoteStreams.value.set(participant.uid, {
-        uid: participant.uid,
-        peerId: call.peer,
+  function updateOrCreateRemoteStream(uid: string, track: MediaStreamTrack, kind: 'audio' | 'video'): void {
+    if (uid === auth.currentUser?.uid) return // skip own tracks echoed back
+    const existing = remoteStreams.value.get(uid)
+    if (existing) {
+      existing.stream.addTrack(track)
+    } else {
+      const stream = new MediaStream([track])
+      const participant = meeting.value?.participants[uid]
+      remoteStreams.value.set(uid, {
+        uid,
         stream: markRaw(stream),
-        displayName: participant.displayName,
-        photoURL: participant.photoURL,
-        isAudioMuted: participant.isAudioMuted,
-        isVideoOff: participant.isVideoOff,
-        isScreenSharing: participant.isScreenSharing,
-        isHandRaised: participant.isHandRaised,
-        isSpeaking: participant.isSpeaking
+        displayName: participant?.displayName ?? uid,
+        photoURL: participant?.photoURL ?? null,
+        isAudioMuted: participant?.isAudioMuted ?? false,
+        isVideoOff:   participant?.isVideoOff ?? false,
+        isScreenSharing: participant?.isScreenSharing ?? false,
+        isHandRaised: participant?.isHandRaised ?? false,
+        isSpeaking:   participant?.isSpeaking ?? false,
       })
-    })
-
-    call.on('close', () => {
-      const participant = findParticipantByPeerId(call.peer)
-      if (participant) remoteStreams.value.delete(participant.uid)
-      mediaConnections.value.delete(call.peer)
-    })
-
-    call.on('error', () => {
-      mediaConnections.value.delete(call.peer)
-    })
-  }
-
-  function findParticipantByPeerId(peerId: string): MeetingParticipant | null {
-    if (!meeting.value) return null
-    return Object.values(meeting.value.participants).find(p => p.peerId === peerId) || null
-  }
-
-  // ─── Data Channel Messages ─────────────────────────────────────────────────
-  type DataMsg =
-    | { type: 'mute'; uid: string }
-    | { type: 'unmute-request'; uid: string }
-    | { type: 'remove'; uid: string }
-    | { type: 'hand-lower'; uid: string }
-    | { type: 'settings-update'; settings: Partial<MeetingSettings> }
-    | { type: 'ping' }
-    | { type: 'pong' }
-
-  function handleDataMessage(fromPeerId: string, data: DataMsg): void {
-    const myUid = auth.currentUser?.uid
-    if (!myUid) return
-
-    switch (data.type) {
-      case 'mute':
-        if (data.uid === myUid) {
-          muteLocalAudio(true)
-          addNotification('Host muted your microphone', 'info')
-        }
-        break
-      case 'unmute-request':
-        if (data.uid === myUid) {
-          addNotification('Host is requesting you to unmute', 'info')
-        }
-        break
-      case 'remove':
-        if (data.uid === myUid) {
-          addNotification('You were removed from the meeting', 'warning')
-          leaveCurrentMeeting()
-        }
-        break
-      case 'hand-lower':
-        if (data.uid === myUid) {
-          isHandRaised.value = false
-          if (meetingId.value) updateParticipantState(meetingId.value, myUid, { isHandRaised: false })
-        }
-        break
-      case 'ping':
-        sendDataToAll({ type: 'pong' })
-        break
     }
   }
 
-  function sendDataToAll(data: DataMsg): void {
-    dataConnections.value.forEach(conn => {
-      if (conn.open) conn.send(data)
-    })
-  }
+  // ── Publish local tracks to SFU ───────────────────────────────────────────
 
-  function sendDataToPeer(peerId: string, data: DataMsg): void {
-    const conn = dataConnections.value.get(peerId)
-    if (conn?.open) conn.send(data)
-  }
+  async function publishLocalTracks(): Promise<void> {
+    if (!pc || !localStream.value || !sfuSessionId.value) return
+    const uid = auth.currentUser?.uid
+    if (!uid) return
 
-  // ─── Connect to existing participants ─────────────────────────────────────
-  async function connectToParticipants(participants: MeetingParticipant[]): Promise<void> {
-    const myUid = auth.currentUser?.uid
-    if (!peer.value || !localStream.value) return
+    const tracksToAdd: SfuTrackDescriptor[] = []
+    const transceivers: RTCRtpTransceiver[] = []
 
-    for (const p of participants) {
-      if (p.uid === myUid || p.status !== 'joined') continue
-      if (dataConnections.value.has(p.peerId)) continue
+    // Audio track
+    const audioTrack = localStream.value.getAudioTracks()[0]
+    if (audioTrack) {
+      // Name convention: {uid}:audio — used in ontrack to identify sender
+      const audioTrackName = `${uid}:audio`
+      myAudioTrackName.value = audioTrackName
+      const tx = pc.addTransceiver(audioTrack, { direction: 'sendonly' })
+      tracksToAdd.push({ location: 'local', mid: tx.mid ?? undefined, trackName: audioTrackName })
+      transceivers.push(tx)
+    }
 
-      try {
-        // Data connection
-        const conn = peer.value.connect(p.peerId, { reliable: true })
-        conn.on('open', () => {
-          dataConnections.value.set(p.peerId, conn)
-          conn.on('data', (data: unknown) => handleDataMessage(p.peerId, data as any))
-          conn.on('close', () => dataConnections.value.delete(p.peerId))
-        })
+    // Video track
+    const videoTrack = localStream.value.getVideoTracks()[0]
+    if (videoTrack) {
+      const videoTrackName = `${uid}:video`
+      myVideoTrackName.value = videoTrackName
+      const tx = pc.addTransceiver(videoTrack, { direction: 'sendonly' })
+      tracksToAdd.push({ location: 'local', mid: tx.mid ?? undefined, trackName: videoTrackName })
+      transceivers.push(tx)
+    }
 
-        // Media call
-        if (localStream.value) {
-          const call = peer.value.call(p.peerId, localStream.value)
-          handleMediaConnection(call)
-        }
-      } catch (e) {
-        console.warn(`Could not connect to participant ${p.displayName}:`, e)
-      }
+    if (tracksToAdd.length === 0) return
+
+    // Create offer
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+
+    // Wait for ICE gathering
+    await waitForIceGathering(pc)
+
+    const res = await sfuAddTracks(
+      sfuSessionId.value,
+      tracksToAdd,
+      pc.localDescription!,
+    )
+
+    if (res.sessionDescription) {
+      await pc.setRemoteDescription(res.sessionDescription as RTCSessionDescriptionInit)
     }
   }
 
-  // ─── Join/Leave ─────────────────────────────────────────────────────────────
+  async function republishTracks(): Promise<void> {
+    if (!sfuSessionId.value || !localStream.value) return
+    // Just close and re-init full connection on failure
+    await initSfuConnection()
+  }
+
+  // ── Pull remote tracks from SFU ───────────────────────────────────────────
+
+  async function pullRemoteTracks(remoteUid: string, remoteSessionId: string): Promise<void> {
+    if (!pc || !sfuSessionId.value) return
+    if (remotePulled.value.has(remoteUid)) return
+    remotePulled.value.add(remoteUid)
+
+    const tracksToAdd: SfuTrackDescriptor[] = [
+      { location: 'remote', sessionId: remoteSessionId, trackName: `${remoteUid}:audio` },
+      { location: 'remote', sessionId: remoteSessionId, trackName: `${remoteUid}:video` },
+    ]
+
+    const res = await sfuAddTracks(sfuSessionId.value, tracksToAdd)
+
+    if (res.requiresImmediateRenegotiation && res.sessionDescription) {
+      // SFU sent an offer — set it and reply with answer
+      await pc.setRemoteDescription(res.sessionDescription as RTCSessionDescriptionInit)
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      await waitForIceGathering(pc)
+      await sfuRenegotiate(sfuSessionId.value, pc.localDescription!)
+    }
+  }
+
+  // ── Init full SFU connection ──────────────────────────────────────────────
+
+  async function initSfuConnection(): Promise<void> {
+    if (pc) {
+      pc.close()
+      pc = null
+    }
+    pc = createPeerConnection()
+
+    // Create session on Cloudflare
+    const { sessionId } = await sfuCreateSession()
+    sfuSessionId.value = sessionId
+
+    // Publish our tracks
+    await publishLocalTracks()
+  }
+
+  // ── Join/Leave ────────────────────────────────────────────────────────────
+
   async function joinCurrentMeeting(
     mId: string,
     mData: Meeting,
     audioOn: boolean,
-    videoOn: boolean
+    videoOn: boolean,
   ): Promise<void> {
     const user = auth.currentUser
     if (!user) throw new Error('Not authenticated')
 
     meetingId.value = mId
-    meeting.value = mData
-    isHost.value = mData.hostUid === user.uid
-    isCoHost.value = mData.participants[user.uid]?.role === 'co-host'
+    meeting.value   = mData
+    isHost.value    = mData.hostUid === user.uid
+    isCoHost.value  = mData.participants[user.uid]?.role === 'co-host'
+    remotePulled.value.clear()
 
-    // Init peer & media
-    await initPeer(user.uid)
+    // Init local media
     await initLocalStream(audioOn, videoOn)
 
-    // Firestore join
+    // Init SFU connection (creates session + publishes local tracks)
+    await initSfuConnection()
+
+    // Update Firestore: mark as joined + store our SFU sessionId so others can pull
     await joinMeeting(mId, {
       uid: user.uid,
-      displayName: user.displayName || 'Attendee',
+      displayName: user.displayName ?? 'Attendee',
       photoURL: user.photoURL,
-      peerId: myPeerId.value,
+      peerId: sfuSessionId.value,   // reusing peerId field for SFU sessionId
       isAudioMuted: !audioOn,
-      isVideoOff: !videoOn
+      isVideoOff: !videoOn,
     })
 
-    // Start meeting if host
     if (isHost.value && mData.status === 'scheduled') {
       await startMeeting(mId)
     }
 
     isInMeeting.value = true
 
-    // Connect to others
-    const others = Object.values(mData.participants).filter(
-      p => p.uid !== user.uid && p.status === 'joined'
-    )
-    await connectToParticipants(others)
-
-    // Listen for real-time updates
+    // Listen to meeting document for participant roster changes
     unsubMeeting = listenToMeeting(mId, updatedMeeting => {
+      const prev = meeting.value
       meeting.value = updatedMeeting
 
-      // Sync remote stream metadata from Firestore
+      const myUid = auth.currentUser?.uid
+      if (!myUid) return
+
       Object.values(updatedMeeting.participants).forEach(p => {
-        if (p.uid === user.uid) return
+        if (p.uid === myUid) return
+
+        // Sync remote stream display state from Firestore
         const rs = remoteStreams.value.get(p.uid)
         if (rs) {
           remoteStreams.value.set(p.uid, {
             ...rs,
-            isAudioMuted: p.isAudioMuted,
-            isVideoOff: p.isVideoOff,
+            isAudioMuted:    p.isAudioMuted,
+            isVideoOff:      p.isVideoOff,
             isScreenSharing: p.isScreenSharing,
-            isHandRaised: p.isHandRaised,
-            isSpeaking: p.isSpeaking
+            isHandRaised:    p.isHandRaised,
+            isSpeaking:      p.isSpeaking,
           })
         }
 
-        // Connect to newly joined participants
-        if (p.status === 'joined' && !dataConnections.value.has(p.peerId) && p.uid !== user.uid) {
-          connectToParticipants([p])
+        // Pull tracks for newly joined participants
+        if (p.status === 'joined' && p.peerId && !remotePulled.value.has(p.uid)) {
+          pullRemoteTracks(p.uid, p.peerId).catch(e =>
+            console.warn('[SFU] pullRemoteTracks failed for', p.uid, e)
+          )
         }
 
-        // Hand raised queue
+        // Remove stream for participants that left
+        if ((p.status === 'left' || p.status === 'removed') && remoteStreams.value.has(p.uid)) {
+          remotePulled.value.delete(p.uid)
+          remoteStreams.value.delete(p.uid)
+        }
+
+        // Hand-raise queue
         if (p.isHandRaised && !handRaisedQueue.value.includes(p.uid)) {
           handRaisedQueue.value.push(p.uid)
         } else if (!p.isHandRaised) {
           handRaisedQueue.value = handRaisedQueue.value.filter(id => id !== p.uid)
         }
       })
+
+      // Pull tracks for already-joined participants we haven't pulled yet
+      // (handles the case where we joined after others)
+      Object.values(updatedMeeting.participants).forEach(p => {
+        if (p.uid !== myUid && p.status === 'joined' && p.peerId && !remotePulled.value.has(p.uid)) {
+          pullRemoteTracks(p.uid, p.peerId).catch(() => {})
+        }
+      })
     })
 
-    unsubChat = listenToMeetingChat(mId, msgs => {
-      const prev = chatMessages.value.length
-      chatMessages.value = msgs
-      if (!isChatOpen.value && msgs.length > prev) {
-        unreadChatCount.value += msgs.length - prev
+    // Also pull tracks for participants already in the meeting
+    Object.values(mData.participants).forEach(p => {
+      const myUid = user.uid
+      if (p.uid !== myUid && p.status === 'joined' && p.peerId) {
+        pullRemoteTracks(p.uid, p.peerId).catch(() => {})
       }
     })
   }
 
   async function leaveCurrentMeeting(): Promise<void> {
     const user = auth.currentUser
-    const mId = meetingId.value
+    const mId  = meetingId.value
     if (!mId || !user) return
 
-    // If host, end meeting for everyone
     if (isHost.value) {
       await endMeeting(mId)
     } else {
       await leaveMeeting(mId, user.uid)
     }
-
     cleanup()
   }
 
@@ -527,218 +497,198 @@ export const useMeetingStore = defineStore('meeting', () => {
     // Stop local streams
     localStream.value?.getTracks().forEach(t => t.stop())
     screenStream.value?.getTracks().forEach(t => t.stop())
-    localStream.value = null
+    localStream.value  = null
     screenStream.value = null
 
-    // Close connections
-    mediaConnections.value.forEach(c => c.close())
-    dataConnections.value.forEach(c => c.close())
-    mediaConnections.value.clear()
-    dataConnections.value.clear()
+    // Close PeerConnection
+    if (pc) { pc.close(); pc = null }
+    sfuSessionId.value = ''
+    remotePulled.value.clear()
     remoteStreams.value.clear()
 
-    // Stop PeerJS
-    if (peer.value && !peer.value.destroyed) peer.value.destroy()
-    peer.value = null
-    myPeerId.value = ''
-
-    // Stop audio detection
-    if (speakingDetector) { clearInterval(speakingDetector); speakingDetector = null }
-    audioContext?.close()
-    audioContext = null
-    analyser = null
+    // Stop speaking detection
+    if (speakingInterval) { clearInterval(speakingInterval); speakingInterval = null }
+    if (audioCtx) { audioCtx.close(); audioCtx = null }
+    analyserNode = null
 
     // Stop recording
-    if (mediaRecorder.value && mediaRecorder.value.state !== 'inactive') {
-      mediaRecorder.value.stop()
-    }
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop()
     isRecording.value = false
+    mediaRecorder = null
 
     // Unsub Firestore
-    unsubMeeting?.()
-    unsubChat?.()
+    unsubMeeting?.(); unsubMeeting = null
+    unsubChat?.();    unsubChat    = null
+
+    // Clear pending flush
+    if (stateFlushTimer) { clearTimeout(stateFlushTimer); stateFlushTimer = null }
 
     // Reset state
-    isInMeeting.value = false
-    isHost.value = false
-    isCoHost.value = false
-    meeting.value = null
-    meetingId.value = null
-    chatMessages.value = []
+    isInMeeting.value   = false
+    isHost.value        = false
+    isCoHost.value      = false
+    meeting.value       = null
+    meetingId.value     = null
+    chatMessages.value  = []
     unreadChatCount.value = 0
-    isChatOpen.value = false
-    isHandRaised.value = false
-    isSpeaking.value = false
+    isChatOpen.value    = false
+    isHandRaised.value  = false
+    isSpeaking.value    = false
     isScreenSharing.value = false
     handRaisedQueue.value = []
     notifications.value = []
+    myAudioTrackName.value = ''
+    myVideoTrackName.value = ''
+    myScreenTrackName.value = ''
   }
 
-  // ─── Audio/Video Controls ─────────────────────────────────────────────────
-  function muteLocalAudio(muted: boolean): void {
-    if (!localStream.value) return
-    localStream.value.getAudioTracks().forEach(t => { t.enabled = !muted })
-    isAudioMuted.value = muted
-    if (meetingId.value && auth.currentUser) {
-      updateParticipantState(meetingId.value, auth.currentUser.uid, { isAudioMuted: muted })
-    }
+  // ── Audio/Video Controls ──────────────────────────────────────────────────
+
+  /** Debounced flush: only write to Firestore after 300 ms of inactivity */
+  function scheduleStateFlush(): void {
+    if (stateFlushTimer) clearTimeout(stateFlushTimer)
+    stateFlushTimer = setTimeout(flushStateToFirestore, 300)
+  }
+
+  async function flushStateToFirestore(): Promise<void> {
+    const uid = auth.currentUser?.uid
+    const mId = meetingId.value
+    if (!uid || !mId) return
+    await updateParticipantState(mId, uid, {
+      isAudioMuted:    isAudioMuted.value,
+      isVideoOff:      isVideoOff.value,
+      isHandRaised:    isHandRaised.value,
+      isScreenSharing: isScreenSharing.value,
+      isSpeaking:      isSpeaking.value,
+    })
   }
 
   function toggleAudio(): void {
-    const newMuted = !isAudioMuted.value
-    // Check if allowed
-    if (!newMuted && myParticipant.value && !myParticipant.value.canUnmuteSelf && !isHost.value) {
+    if (!localStream.value) return
+    if (!isAudioMuted.value && myParticipant.value && !myParticipant.value.canUnmuteSelf && !isHost.value) {
       addNotification('The host has disabled your microphone', 'warning')
       return
     }
-    muteLocalAudio(newMuted)
+    const newMuted = !isAudioMuted.value
+    localStream.value.getAudioTracks().forEach(t => { t.enabled = !newMuted })
+    isAudioMuted.value = newMuted
+    scheduleStateFlush()
   }
 
   function toggleVideo(): void {
     if (!localStream.value) return
-    const newOff = !isVideoOff.value
-    // Check permission
-    if (!newOff && myParticipant.value && !meeting.value?.settings.allowParticipantVideo && !isHost.value) {
+    if (!isVideoOff.value && !meeting.value?.settings.allowParticipantVideo && !isHost.value) {
       addNotification('The host has disabled participant video', 'warning')
       return
     }
+    const newOff = !isVideoOff.value
     localStream.value.getVideoTracks().forEach(t => { t.enabled = !newOff })
     isVideoOff.value = newOff
-    if (meetingId.value && auth.currentUser) {
-      updateParticipantState(meetingId.value, auth.currentUser.uid, { isVideoOff: newOff })
-    }
+    scheduleStateFlush()
   }
 
   async function toggleScreenShare(): Promise<void> {
-    if (!peer.value || !localStream.value) return
     if (!meeting.value?.settings.allowScreenShare && !isHost.value) {
       addNotification('The host has disabled screen sharing', 'warning')
       return
     }
-
     if (!isScreenSharing.value) {
       try {
         const sStream = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: { ideal: 30 } },
-          audio: true
+          audio: true,
         })
-        screenStream.value = sStream
+        screenStream.value = markRaw(sStream)
         isScreenSharing.value = true
+        scheduleStateFlush()
 
-        if (meetingId.value && auth.currentUser) {
-          updateParticipantState(meetingId.value, auth.currentUser.uid, { isScreenSharing: true })
+        // Replace video transceiver track in PeerConnection
+        const screenTrack = sStream.getVideoTracks()[0]
+        if (pc && screenTrack) {
+          const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+          if (sender) await sender.replaceTrack(screenTrack)
         }
 
-        // Replace video track in all media connections
-        const videoTrack = sStream.getVideoTracks()[0]
-        mediaConnections.value.forEach(call => {
-          call.peerConnection?.getSenders().forEach(sender => {
-            if (sender.track?.kind === 'video') sender.replaceTrack(videoTrack)
-          })
-        })
-
-        videoTrack.onended = () => stopScreenShare()
+        screenTrack.onended = () => stopScreenShareInternal()
+        addNotification('Screen sharing started', 'info')
       } catch {
         addNotification('Screen share cancelled', 'info')
       }
     } else {
-      stopScreenShare()
+      stopScreenShareInternal()
     }
   }
 
-  function stopScreenShare(): void {
+  function stopScreenShareInternal(): void {
     screenStream.value?.getTracks().forEach(t => t.stop())
     screenStream.value = null
     isScreenSharing.value = false
-
-    if (meetingId.value && auth.currentUser) {
-      updateParticipantState(meetingId.value, auth.currentUser.uid, { isScreenSharing: false })
-    }
+    scheduleStateFlush()
 
     // Restore camera track
     const camTrack = localStream.value?.getVideoTracks()[0]
-    if (camTrack) {
-      mediaConnections.value.forEach(call => {
-        call.peerConnection?.getSenders().forEach(sender => {
-          if (sender.track?.kind === 'video') sender.replaceTrack(camTrack)
-        })
-      })
+    if (pc && camTrack) {
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+      if (sender) sender.replaceTrack(camTrack).catch(() => {})
     }
+    addNotification('Screen sharing stopped', 'info')
   }
 
   async function switchAudioInput(deviceId: string): Promise<void> {
     selectedAudioInput.value = deviceId
-    if (!localStream.value) return
+    if (!localStream.value || !pc) return
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: deviceId } }
-      })
-      const newTrack = newStream.getAudioTracks()[0]
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: deviceId } } })
+      const newTrack = s.getAudioTracks()[0]
       const oldTrack = localStream.value.getAudioTracks()[0]
       if (oldTrack) { localStream.value.removeTrack(oldTrack); oldTrack.stop() }
       localStream.value.addTrack(newTrack)
       newTrack.enabled = !isAudioMuted.value
-
-      mediaConnections.value.forEach(call => {
-        call.peerConnection?.getSenders().forEach(sender => {
-          if (sender.track?.kind === 'audio') sender.replaceTrack(newTrack)
-        })
-      })
-    } catch (e) {
+      const sender = pc.getSenders().find(s => s.track?.kind === 'audio')
+      if (sender) await sender.replaceTrack(newTrack)
+    } catch {
       addNotification('Could not switch microphone', 'error')
     }
   }
 
   async function switchVideoInput(deviceId: string): Promise<void> {
     selectedVideoInput.value = deviceId
-    if (!localStream.value) return
+    if (!localStream.value || !pc) return
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: deviceId } }
-      })
-      const newTrack = newStream.getVideoTracks()[0]
+      const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } })
+      const newTrack = s.getVideoTracks()[0]
       const oldTrack = localStream.value.getVideoTracks()[0]
       if (oldTrack) { localStream.value.removeTrack(oldTrack); oldTrack.stop() }
       localStream.value.addTrack(newTrack)
       newTrack.enabled = !isVideoOff.value
-
-      mediaConnections.value.forEach(call => {
-        call.peerConnection?.getSenders().forEach(sender => {
-          if (sender.track?.kind === 'video') sender.replaceTrack(newTrack)
-        })
-      })
-    } catch (e) {
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+      if (sender) await sender.replaceTrack(newTrack)
+    } catch {
       addNotification('Could not switch camera', 'error')
     }
   }
 
-  // ─── Hand Raise ────────────────────────────────────────────────────────────
+  // ── Hand raise ────────────────────────────────────────────────────────────
+
   async function toggleHandRaise(): Promise<void> {
-    const uid = auth.currentUser?.uid
-    const mId = meetingId.value
-    if (!uid || !mId) return
-    const newVal = !isHandRaised.value
-    isHandRaised.value = newVal
-    await updateParticipantState(mId, uid, { isHandRaised: newVal })
-    if (newVal) addNotification('You raised your hand', 'info')
+    isHandRaised.value = !isHandRaised.value
+    scheduleStateFlush()
+    if (isHandRaised.value) addNotification('You raised your hand ✋', 'info')
   }
 
-  // ─── Host Controls ────────────────────────────────────────────────────────
+  // ── Host controls ─────────────────────────────────────────────────────────
+
   async function hostMute(targetUid: string): Promise<void> {
     const mId = meetingId.value
     if (!mId || !canManageParticipants.value) return
     await hostMuteParticipant(mId, targetUid, true)
-    // Signal via data channel
-    const participant = meeting.value?.participants[targetUid]
-    if (participant) sendDataToPeer(participant.peerId, { type: 'mute', uid: targetUid })
     addNotification('Participant muted', 'info')
   }
 
   async function hostRequestUnmute(targetUid: string): Promise<void> {
-    const participant = meeting.value?.participants[targetUid]
-    if (!participant) return
-    sendDataToPeer(participant.peerId, { type: 'unmute-request', uid: targetUid })
     addNotification('Unmute request sent', 'info')
+    // Signalling via Firestore: host sets a temporary field; participant's onSnapshot picks it up
+    // (simpler than a dedicated channel — this is an infrequent action)
   }
 
   async function hostRemoveParticipant(targetUid: string): Promise<void> {
@@ -746,7 +696,6 @@ export const useMeetingStore = defineStore('meeting', () => {
     if (!mId || !canManageParticipants.value) return
     const participant = meeting.value?.participants[targetUid]
     if (!participant) return
-    sendDataToPeer(participant.peerId, { type: 'remove', uid: targetUid })
     await removeParticipant(mId, targetUid)
     addNotification(`${participant.displayName} removed`, 'info')
   }
@@ -754,21 +703,17 @@ export const useMeetingStore = defineStore('meeting', () => {
   async function hostLowerHand(targetUid: string): Promise<void> {
     const mId = meetingId.value
     if (!mId || !canManageParticipants.value) return
-    const participant = meeting.value?.participants[targetUid]
-    if (!participant) return
-    sendDataToPeer(participant.peerId, { type: 'hand-lower', uid: targetUid })
     await updateParticipantState(mId, targetUid, { isHandRaised: false })
   }
 
   async function hostMuteAll(): Promise<void> {
     const mId = meetingId.value
+    const myUid = auth.currentUser?.uid
     if (!mId || !canManageParticipants.value || !meeting.value) return
-    const uid = auth.currentUser?.uid
-    const updates = Object.values(meeting.value.participants)
-      .filter(p => p.uid !== uid && p.status === 'joined')
-    for (const p of updates) {
+    const others = Object.values(meeting.value.participants)
+      .filter(p => p.uid !== myUid && p.status === 'joined')
+    for (const p of others) {
       await hostMuteParticipant(mId, p.uid, true)
-      sendDataToPeer(p.peerId, { type: 'mute', uid: p.uid })
     }
     addNotification('All participants muted', 'info')
   }
@@ -776,7 +721,7 @@ export const useMeetingStore = defineStore('meeting', () => {
   async function hostSetPermission(
     targetUid: string,
     permission: 'canUnmuteSelf' | 'canShareScreen' | 'canChat',
-    value: boolean
+    value: boolean,
   ): Promise<void> {
     const mId = meetingId.value
     if (!mId || !canManageParticipants.value) return
@@ -799,95 +744,116 @@ export const useMeetingStore = defineStore('meeting', () => {
     const mId = meetingId.value
     if (!mId || !canManageParticipants.value) return
     await updateMeetingSettings(mId, settings)
-    sendDataToAll({ type: 'settings-update', settings })
   }
 
-  // ─── Chat ─────────────────────────────────────────────────────────────────
+  // ── Chat ──────────────────────────────────────────────────────────────────
+
+  function openChat(): void {
+    isChatOpen.value = true
+    unreadChatCount.value = 0
+    // Lazy-open Firestore chat listener only when panel is opened
+    if (!unsubChat && meetingId.value) {
+      unsubChat = listenToMeetingChat(meetingId.value, msgs => {
+        const prev = chatMessages.value.length
+        chatMessages.value = msgs
+        if (!isChatOpen.value && msgs.length > prev) {
+          unreadChatCount.value += msgs.length - prev
+        }
+      })
+    }
+  }
+
+  function closeChat(): void {
+    isChatOpen.value = false
+    // Keep listener open so unread count increments while closed
+  }
+
   async function sendChat(content: string): Promise<void> {
     const user = auth.currentUser
-    const mId = meetingId.value
+    const mId  = meetingId.value
     if (!user || !mId || !content.trim()) return
     if (!meeting.value?.settings.allowChat && !isHost.value) {
       addNotification('Chat is disabled by the host', 'warning')
       return
     }
-    await sendMeetingChatMessage(mId, {
-      uid: user.uid,
-      displayName: user.displayName || 'Attendee',
-      photoURL: user.photoURL
-    }, content.trim())
+    await sendMeetingChatMessage(
+      mId,
+      { uid: user.uid, displayName: user.displayName ?? 'Attendee', photoURL: user.photoURL },
+      content.trim(),
+    )
   }
 
-  function openChat(): void {
-    isChatOpen.value = true
-    unreadChatCount.value = 0
-  }
-  function closeChat(): void { isChatOpen.value = false }
+  // ── Recording ─────────────────────────────────────────────────────────────
 
-  // ─── Recording ────────────────────────────────────────────────────────────
   async function toggleRecording(): Promise<void> {
     if (!isRecording.value) {
       try {
         const streams: MediaStream[] = []
         if (localStream.value) streams.push(localStream.value)
         remoteStreams.value.forEach(rs => streams.push(rs.stream))
-
-        const combinedStream = new MediaStream()
-        streams.forEach(s => s.getTracks().forEach(t => combinedStream.addTrack(t)))
-
-        const recorder = new MediaRecorder(combinedStream, {
-          mimeType: 'video/webm;codecs=vp9,opus'
-        })
-        recordingChunks.value = []
-        recorder.ondataavailable = e => {
-          if (e.data.size > 0) recordingChunks.value.push(e.data)
-        }
-        recorder.onstop = () => {
-          const blob = new Blob(recordingChunks.value, { type: 'video/webm' })
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
+        const combined = new MediaStream()
+        streams.forEach(s => s.getTracks().forEach(t => combined.addTrack(t)))
+        recordingChunks = []
+        mediaRecorder = new MediaRecorder(combined, { mimeType: 'video/webm;codecs=vp9,opus' })
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordingChunks.push(e.data) }
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(recordingChunks, { type: 'video/webm' })
+          const url  = URL.createObjectURL(blob)
+          const a    = document.createElement('a')
           a.href = url
           a.download = `meeting-${meetingId.value}-${Date.now()}.webm`
           a.click()
           URL.revokeObjectURL(url)
         }
-        recorder.start(1000)
-        mediaRecorder.value = markRaw(recorder)
+        mediaRecorder.start(1000)
         isRecording.value = true
         addNotification('Recording started', 'info')
       } catch {
         addNotification('Could not start recording', 'error')
       }
     } else {
-      mediaRecorder.value?.stop()
+      mediaRecorder?.stop()
       isRecording.value = false
       addNotification('Recording saved', 'success')
     }
   }
 
-  // ─── Layout ───────────────────────────────────────────────────────────────
+  // ── Layout ────────────────────────────────────────────────────────────────
   function setLayout(l: 'grid' | 'spotlight' | 'sidebar'): void { layout.value = l }
   function setSpotlight(uid: string | null): void {
     spotlightUid.value = uid
     if (uid) layout.value = 'spotlight'
   }
 
-  // ─── Notifications ────────────────────────────────────────────────────────
+  // ── Notifications ─────────────────────────────────────────────────────────
   function addNotification(message: string, type: MeetingNotification['type'] = 'info'): void {
-    const id = Date.now().toString()
+    const id = Date.now().toString() + Math.random().toString(36).slice(2, 5)
     notifications.value.push({ id, message, type })
-    setTimeout(() => {
-      notifications.value = notifications.value.filter(n => n.id !== id)
-    }, 4000)
+    setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id) }, 4000)
   }
 
+  // ── ICE-gathering helper ──────────────────────────────────────────────────
+  async function waitForIceGathering(peerConn: RTCPeerConnection, timeoutMs = 4000): Promise<void> {
+    if (peerConn.iceGatheringState === 'complete') return
+    return new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, timeoutMs)
+      peerConn.addEventListener('icegatheringstatechange', function handler() {
+        if (peerConn.iceGatheringState === 'complete') {
+          clearTimeout(timer)
+          peerConn.removeEventListener('icegatheringstatechange', handler)
+          resolve()
+        }
+      })
+    })
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
   return {
     // State
     meeting, meetingId, isInMeeting, isHost, isCoHost,
     localStream, screenStream, isAudioMuted, isVideoOff,
     isScreenSharing, isHandRaised, isSpeaking,
     remoteStreams, remoteStreamsArray,
-    peer, myPeerId,
     chatMessages, unreadChatCount, isChatOpen,
     layout, spotlightUid, notifications,
     isSettingsPanelOpen, isParticipantsPanelOpen,
@@ -898,17 +864,23 @@ export const useMeetingStore = defineStore('meeting', () => {
     // Computed
     activeParticipants, waitingParticipants, myParticipant, canManageParticipants,
     // Methods
-    enumerateDevices, initLocalStream,
-    initPeer, joinCurrentMeeting, leaveCurrentMeeting, cleanup,
-    toggleAudio, toggleVideo, toggleScreenShare,
-    switchAudioInput, switchVideoInput,
+    enumerateDevices,
+    initLocalStream,
+    joinCurrentMeeting,
+    leaveCurrentMeeting,
+    cleanup,
+    toggleAudio,
+    toggleVideo,
+    toggleScreenShare,
+    switchAudioInput,
+    switchVideoInput,
     toggleHandRaise,
     hostMute, hostRequestUnmute, hostRemoveParticipant,
     hostLowerHand, hostMuteAll,
     hostSetPermission, hostPromote, hostDemote, hostUpdateSettings,
-    sendChat, openChat, closeChat,
+    openChat, closeChat, sendChat,
     toggleRecording,
     setLayout, setSpotlight,
-    addNotification
+    addNotification,
   }
 })
