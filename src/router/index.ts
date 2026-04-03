@@ -57,6 +57,32 @@ const router = createRouter({
       name: 'call-history',
       component: () => import('../components/CallHistoryScreen.vue'),
       meta: { requiresAuth: true, title: 'Call History — Soft Connect' }
+    },
+    // ── Meetings ──────────────────────────────────────────────────────────────
+    {
+      path: '/meetings',
+      name: 'meetings',
+      component: () => import('../components/MeetingsScreen.vue'),
+      meta: { requiresAuth: true, title: 'Meetings — Soft Connect' }
+    },
+    {
+      path: '/meeting/prejoin/:code',
+      name: 'meeting-prejoin',
+      component: () => import('../components/PreJoinScreen.vue'),
+      meta: { requiresAuth: true, title: 'Join Meeting — Soft Connect' }
+    },
+    {
+      path: '/meeting/room/:code',
+      name: 'meeting-room',
+      component: () => import('../components/MeetingRoomScreen.vue'),
+      meta: { requiresAuth: true, title: 'Meeting — Soft Connect' }
+    },
+    // Public join link (no auth required initially — redirects to auth then prejoin)
+    {
+      path: '/join/:code',
+      name: 'join',
+      component: () => import('../components/PreJoinScreen.vue'),
+      meta: { title: 'Join Meeting — Soft Connect' }
     }
   ]
 })
@@ -83,13 +109,26 @@ router.beforeEach(async (to) => {
     return { name: 'auth', query: { redirect: to.fullPath } }
   }
 
+  // Public join link — if not authed, redirect to auth first, preserving destination
+  if (to.name === 'join' && !appStore.isAuthenticated) {
+    return { name: 'auth', query: { redirect: to.fullPath } }
+  }
+
   // Redirect authenticated users away from auth/welcome
   if ((to.name === 'auth' || to.name === 'welcome') && appStore.isAuthenticated) {
+    // Check if there's a redirect query param from a meeting join link
+    const redirect = to.query.redirect as string
+    if (redirect) return redirect
     return { name: 'dashboard' }
   }
 
-  // Redirect to active incoming call (except when already going to call)
-  if (to.name !== 'call' && appStore.callState.isIncoming && appStore.callState.peerId) {
+  // Redirect to active incoming call (except when already going to call or meeting)
+  if (
+    to.name !== 'call' &&
+    to.name !== 'meeting-room' &&
+    appStore.callState.isIncoming &&
+    appStore.callState.peerId
+  ) {
     return { name: 'call', params: { uid: appStore.callState.peerId } }
   }
 
@@ -98,11 +137,9 @@ router.beforeEach(async (to) => {
 
 // Update document title and announce route to screen readers after each navigation
 router.afterEach((to) => {
-  // Update page title
   const title = to.meta.title as string | undefined
   if (title) document.title = title
 
-  // Announce to screen readers via app store
   try {
     const appStore = useAppStore()
     const routeNames: Record<string, string> = {
@@ -115,6 +152,10 @@ router.afterEach((to) => {
       'profile': 'User profile',
       'settings': 'Settings',
       'call-history': 'Call history',
+      'meetings': 'Meetings',
+      'meeting-prejoin': 'Join meeting',
+      'meeting-room': 'Meeting room',
+      'join': 'Join meeting',
     }
     const name = to.name as string
     const label = routeNames[name] || name
