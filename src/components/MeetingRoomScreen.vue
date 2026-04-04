@@ -251,13 +251,27 @@
                 <span v-else>{{ (currentUser?.displayName || 'Y').charAt(0) }}</span>
               </div>
               <div class="part-info">
-                <span class="part-name">You</span>
-                <span class="part-role" :class="meetingStore.isHost ? 'host' : 'attendee'">{{ meetingStore.isHost ? 'Host' : meetingStore.isCoHost ? 'Co-host' : 'You' }}</span>
+                <div v-if="isRenaming" class="rename-box">
+                  <input v-model="renameInput" @keydown.enter="handleRename" @keydown.escape="isRenaming = false" ref="renameInputRef" />
+                  <button @click="handleRename">Save</button>
+                </div>
+                <template v-else>
+                  <span class="part-name">You</span>
+                  <span class="part-role" :class="meetingStore.isHost ? 'host' : 'attendee'">{{ meetingStore.isHost ? 'Host' : meetingStore.isCoHost ? 'Co-host' : 'You' }}</span>
+                </template>
               </div>
               <div class="part-indicators" aria-hidden="true">
                 <svg v-if="meetingStore.isAudioMuted" class="indicator muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/></svg>
                 <svg v-if="meetingStore.isVideoOff" class="indicator" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                 <span v-if="meetingStore.isHandRaised">✋</span>
+              </div>
+              <div class="part-actions" role="group" aria-label="Your options">
+                <button class="part-action-btn" @click.stop="toggleParticipantMenu('local')" :aria-label="`More options for you`" :aria-expanded="openParticipantMenu === 'local'">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                </button>
+                <div v-if="openParticipantMenu === 'local'" class="participant-menu" role="menu" @click.stop>
+                  <button role="menuitem" @click="startRename">Rename</button>
+                </div>
               </div>
             </li>
             <li
@@ -377,10 +391,10 @@
       <div class="ctrl-group" role="group" aria-label="Audio and video">
         <div class="ctrl-split">
           <button :class="['ctrl-btn', { off: meetingStore.isAudioMuted }]" @click="meetingStore.toggleAudio()"
-            :aria-label="meetingStore.isAudioMuted ? 'Microphone on' : 'Microphone off'" :aria-pressed="meetingStore.isAudioMuted">
+            :aria-label="meetingStore.isAudioMuted ? 'Microphone off (Ctrl+D)' : 'Microphone on (Ctrl+D)'" :aria-pressed="!meetingStore.isAudioMuted">
             <svg v-if="!meetingStore.isAudioMuted" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
             <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6M17 16.95A7 7 0 015 12v-2"/></svg>
-            <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isAudioMuted ? 'Microphone on' : 'Microphone off' }}</span>
+            <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isAudioMuted ? 'Mic off (Ctrl+D)' : 'Mic on (Ctrl+D)' }}</span>
           </button>
           <button class="ctrl-caret" @click="meetingStore.isSettingsPanelOpen = !meetingStore.isSettingsPanelOpen" aria-label="Audio settings" title="Audio settings">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
@@ -389,10 +403,10 @@
 
         <div class="ctrl-split">
           <button :class="['ctrl-btn', { off: meetingStore.isVideoOff }]" @click="meetingStore.toggleVideo()"
-            :aria-label="meetingStore.isVideoOff ? 'Camera on' : 'Camera off'" :aria-pressed="meetingStore.isVideoOff">
+            :aria-label="meetingStore.isVideoOff ? 'Camera off (Ctrl+E)' : 'Camera on (Ctrl+E)'" :aria-pressed="!meetingStore.isVideoOff">
             <svg v-if="!meetingStore.isVideoOff" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
             <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-            <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isVideoOff ? 'Camera on' : 'Camera off' }}</span>
+            <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isVideoOff ? 'Cam off (Ctrl+E)' : 'Cam on (Ctrl+E)' }}</span>
           </button>
           <button class="ctrl-caret" @click="meetingStore.isSettingsPanelOpen = !meetingStore.isSettingsPanelOpen" aria-label="Video settings">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
@@ -402,9 +416,9 @@
 
       <div class="ctrl-group ctrl-center" role="group" aria-label="Meeting actions">
         <button :class="['ctrl-btn', { active: meetingStore.isScreenSharing }]" @click="meetingStore.toggleScreenShare()"
-          :aria-label="meetingStore.isScreenSharing ? 'Stop sharing screen' : 'Share your screen'" :aria-pressed="meetingStore.isScreenSharing">
+          :aria-label="meetingStore.isScreenSharing ? 'Stop sharing (Ctrl+Alt+S)' : 'Share screen (Ctrl+Alt+S)'" :aria-pressed="meetingStore.isScreenSharing">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          <span class="ctrl-label" aria-hidden="true">Share</span>
+          <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isScreenSharing ? 'Stop (Ctrl+Alt+S)' : 'Share (Ctrl+Alt+S)' }}</span>
         </button>
 
         <div class="ctrl-reaction-wrap">
@@ -419,13 +433,13 @@
         </div>
 
         <button :class="['ctrl-btn', { active: meetingStore.isHandRaised }]" @click="meetingStore.toggleHandRaise()"
-          :aria-label="meetingStore.isHandRaised ? 'Lower your hand' : 'Raise your hand'" :aria-pressed="meetingStore.isHandRaised">
+          :aria-label="meetingStore.isHandRaised ? 'Lower hand (Ctrl+Alt+H)' : 'Raise hand (Ctrl+Alt+H)'" :aria-pressed="meetingStore.isHandRaised">
           <span aria-hidden="true">✋</span>
-          <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isHandRaised ? 'Lower' : 'Raise Hand' }}</span>
+          <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isHandRaised ? 'Lower (Ctrl+Alt+H)' : 'Raise (Ctrl+Alt+H)' }}</span>
         </button>
 
         <button v-if="meetingStore.isHost" :class="['ctrl-btn', { active: meetingStore.isRecording }]" @click="meetingStore.toggleRecording()"
-          :aria-label="meetingStore.isRecording ? 'Stop recording' : 'Start recording meeting'" :aria-pressed="meetingStore.isRecording">
+          :aria-label="meetingStore.isRecording ? 'Stop recording' : 'Start recording'" :aria-pressed="meetingStore.isRecording">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" :fill="meetingStore.isRecording ? 'currentColor' : 'none'"/></svg>
           <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isRecording ? 'Stop Rec' : 'Record' }}</span>
         </button>
@@ -434,26 +448,26 @@
       <div class="ctrl-group ctrl-right" role="group" aria-label="Panels and leave">
         <button :class="['ctrl-btn', { active: meetingStore.isChatOpen }]"
           @click="meetingStore.isChatOpen ? meetingStore.closeChat() : meetingStore.openChat()"
-          :aria-label="`${meetingStore.isChatOpen ? 'Close' : 'Open'} chat${meetingStore.unreadChatCount > 0 ? `, ${meetingStore.unreadChatCount} unread` : ''}`"
+          :aria-label="`${meetingStore.isChatOpen ? 'Close' : 'Open'} chat (Ctrl+Alt+C)${meetingStore.unreadChatCount > 0 ? `, ${meetingStore.unreadChatCount} unread` : ''}`"
           :aria-pressed="meetingStore.isChatOpen">
           <div class="icon-with-badge">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
             <span v-if="meetingStore.unreadChatCount > 0 && !meetingStore.isChatOpen" class="badge" aria-hidden="true">{{ meetingStore.unreadChatCount }}</span>
           </div>
-          <span class="ctrl-label" aria-hidden="true">Chat</span>
+          <span class="ctrl-label" aria-hidden="true">Chat (Ctrl+Alt+C)</span>
         </button>
 
         <button :class="['ctrl-btn', { active: meetingStore.isParticipantsPanelOpen }]"
           @click="meetingStore.isParticipantsPanelOpen = !meetingStore.isParticipantsPanelOpen"
-          :aria-label="`${meetingStore.isParticipantsPanelOpen ? 'Close' : 'Open'} participants list. ${meetingStore.activeParticipants.length} participants.`"
+          :aria-label="`${meetingStore.isParticipantsPanelOpen ? 'Close' : 'Open'} participants (Ctrl+Alt+P). ${meetingStore.activeParticipants.length} participants.`"
           :aria-pressed="meetingStore.isParticipantsPanelOpen">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-          <span class="ctrl-label" aria-hidden="true">People</span>
+          <span class="ctrl-label" aria-hidden="true">People (Ctrl+Alt+P)</span>
         </button>
 
         <button :class="['ctrl-btn', { active: meetingStore.isSettingsPanelOpen }]"
           @click="meetingStore.isSettingsPanelOpen = !meetingStore.isSettingsPanelOpen"
-          :aria-label="`${meetingStore.isSettingsPanelOpen ? 'Close' : 'Open'} meeting settings`"
+          :aria-label="`${meetingStore.isSettingsPanelOpen ? 'Close' : 'Open'} settings`"
           :aria-pressed="meetingStore.isSettingsPanelOpen">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
           <span class="ctrl-label" aria-hidden="true">Settings</span>
@@ -526,12 +540,15 @@ const spotlightLocalRef= ref<HTMLVideoElement>()
 const chatMessagesRef  = ref<HTMLElement>()
 const chatInputRef     = ref<HTMLTextAreaElement>()
 const leaveCancelRef   = ref<HTMLButtonElement>()
+const renameInputRef    = ref<HTMLInputElement>()
 
 // UI
 const showLeaveDialog       = ref(false)
 const showReactionPicker    = ref(false)
 const chatInput             = ref('')
 const openParticipantMenu   = ref<string | null>(null)
+const isRenaming            = ref(false)
+const renameInput           = ref('')
 const elapsedMs             = ref(0)
 const now                   = ref(new Date())
 let timerInterval: ReturnType<typeof setInterval> | null = null
@@ -572,6 +589,18 @@ const spotlightStream = computed(() => {
   return meetingStore.remoteStreams.get(uid) ?? null
 })
 
+function updateDocumentTitle() {
+  const title = meetingStore.meeting?.title || 'Meeting'
+  document.title = `${title}: Ongoing | Soft Connect`
+}
+
+const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+  if (meetingStore.isInMeeting) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
 onMounted(async () => {
   if (!meetingStore.isInMeeting) {
     router.replace(`/meeting/prejoin/${meetingCode.value}`)
@@ -586,6 +615,8 @@ onMounted(async () => {
   meetingStore.addScreenReaderAnnouncement(`You joined the meeting: ${meetingStore.meeting?.title}`)
   document.addEventListener('click', handleClickOutside)
   window.addEventListener('keydown', handleGlobalKeydown)
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  updateDocumentTitle()
 })
 
 onUnmounted(() => {
@@ -593,7 +624,10 @@ onUnmounted(() => {
   if (clockInterval) clearInterval(clockInterval)
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
 })
+
+watch(() => meetingStore.meeting?.title, updateDocumentTitle)
 
 watch(() => meetingStore.localStream, s => {
   if (s && localVideoRef.value) localVideoRef.value.srcObject = s
@@ -681,6 +715,20 @@ function handleEscape() {
 
 function toggleParticipantMenu(uid: string) {
   openParticipantMenu.value = openParticipantMenu.value === uid ? null : uid
+}
+
+async function startRename() {
+  renameInput.value = meetingStore.myParticipant?.displayName || ''
+  isRenaming.value = true
+  await nextTick()
+  renameInputRef.value?.focus()
+}
+
+async function handleRename() {
+  if (!renameInput.value.trim()) return
+  await meetingStore.updateMyDisplayName(renameInput.value)
+  isRenaming.value = false
+  openParticipantMenu.value = null
 }
 
 async function sendChat() {
@@ -927,6 +975,10 @@ function formatMsgTime(ts?: number): string {
 .leave-confirm-btn { background:linear-gradient(135deg,#ff3b5c,#ff3b8c);border:none;border-radius:10px;padding:.625rem 1.25rem;color:#fff;cursor:pointer;font-family:inherit;font-size:.9rem;font-weight:700;min-height:44px; }
 .leave-confirm-btn:focus-visible { outline:3px solid #ff9bb5;outline-offset:2px; }
 .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
+.rename-box { display: flex; gap: 4px; }
+.rename-box input { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 2px 8px; font-size: 0.875rem; width: 120px; }
+.rename-box button { background: #5c3bff; border: none; border-radius: 4px; color: #fff; padding: 2px 8px; font-size: 0.75rem; cursor: pointer; }
+
 @media(max-width:640px){
   .video-grid.grid-many{grid-template-columns:repeat(2,1fr)}
   .controls-bar{flex-wrap:wrap;gap:.25rem;padding:.5rem}

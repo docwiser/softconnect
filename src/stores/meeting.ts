@@ -32,6 +32,7 @@ import {
   startMeeting,
   endMeeting,
   updateMeetingSettings,
+  updateParticipantProfile,
   sendMeetingChatMessage,
   listenToMeeting,
   listenToMeetingChat,
@@ -826,6 +827,15 @@ export const useMeetingStore = defineStore('meeting', () => {
     await updateMeetingSettings(mId, settings)
   }
 
+  async function updateMyDisplayName(name: string): Promise<void> {
+    const uid = auth.currentUser?.uid
+    const mId = meetingId.value
+    if (!uid || !mId || !name.trim()) return
+    await updateParticipantProfile(mId, uid, { displayName: name.trim() })
+    addNotification('Display name updated', 'success')
+    addScreenReaderAnnouncement(`Display name updated to ${name}`)
+  }
+
   // ── Chat ──────────────────────────────────────────────────────────────────
 
   function openChat(): void {
@@ -963,6 +973,7 @@ export const useMeetingStore = defineStore('meeting', () => {
     hostMute, hostRequestUnmute, hostRemoveParticipant,
     hostLowerHand, hostMuteAll,
     hostSetPermission, hostPromote, hostDemote, hostUpdateSettings,
+    updateMyDisplayName,
     openChat, closeChat, sendChat,
     toggleRecording,
     setLayout, setSpotlight,

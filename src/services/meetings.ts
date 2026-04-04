@@ -340,6 +340,18 @@ export async function demoteFromCoHost(
   })
 }
 
+export async function updateParticipantProfile(
+  meetingId: string,
+  uid: string,
+  updates: Partial<Pick<MeetingParticipant, 'displayName' | 'photoURL'>>
+): Promise<void> {
+  const firestoreUpdates: Record<string, any> = {}
+  for (const [key, val] of Object.entries(updates)) {
+    firestoreUpdates[`participants.${uid}.${key}`] = val
+  }
+  await updateDoc(doc(db, 'meetings', meetingId), firestoreUpdates)
+}
+
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
 export async function sendMeetingChatMessage(

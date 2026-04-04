@@ -31,9 +31,9 @@
             <button
               :class="['preview-ctrl-btn', { off: isMuted }]"
               @click="toggleMute"
-              :aria-label="isMuted ? 'Unmute microphone' : 'Mute microphone'"
-              :aria-pressed="isMuted"
-              :title="isMuted ? 'Unmute' : 'Mute'"
+              :aria-label="isMuted ? 'Microphone off (Ctrl+D)' : 'Microphone on (Ctrl+D)'"
+              :aria-pressed="!isMuted"
+              :title="isMuted ? 'Microphone off (Ctrl+D)' : 'Microphone on (Ctrl+D)'"
             >
               <svg v-if="!isMuted" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
               <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23M12 19v4M8 23h8"/></svg>
@@ -42,9 +42,9 @@
             <button
               :class="['preview-ctrl-btn', { off: isVideoOff }]"
               @click="toggleVideo"
-              :aria-label="isVideoOff ? 'Turn camera on' : 'Turn camera off'"
-              :aria-pressed="isVideoOff"
-              :title="isVideoOff ? 'Camera on' : 'Camera off'"
+              :aria-label="isVideoOff ? 'Camera off (Ctrl+E)' : 'Camera on (Ctrl+E)'"
+              :aria-pressed="!isVideoOff"
+              :title="isVideoOff ? 'Camera off (Ctrl+E)' : 'Camera on (Ctrl+E)'"
             >
               <svg v-if="!isVideoOff" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -321,12 +321,18 @@ onMounted(async () => {
     if (m) {
       // Real-time updates for participant count
       unsubMeeting = listenToMeeting(m.id, updated => { meeting.value = updated })
+      document.title = `Join: ${m.title} | Soft Connect`
+    } else {
+      document.title = 'Meeting Not Found | Soft Connect'
     }
-  } catch {}
+  } catch {
+    document.title = 'Meeting Not Found | Soft Connect'
+  }
   isLoadingMeeting.value = false
 
   // Get devices
   await requestPermissionsAndDevices()
+  window.addEventListener('keydown', handleGlobalKeydown)
 })
 
 onUnmounted(() => {
@@ -334,8 +340,27 @@ onUnmounted(() => {
   unsubMeeting?.()
   if (levelInterval) clearInterval(levelInterval)
   audioCtx?.close();
-  (speakerTestAudio as HTMLAudioElement | null)?.pause();
+  (speakerTestAudio as HTMLAudioElement | null)?.pause()
+  window.removeEventListener('keydown', handleGlobalKeydown)
 })
+
+function handleGlobalKeydown(e: KeyboardEvent) {
+  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+  const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey
+
+  if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
+
+  if (cmdOrCtrl && e.key.toLowerCase() === 'd') {
+    e.preventDefault()
+    toggleMute()
+    return
+  }
+  if (cmdOrCtrl && e.key.toLowerCase() === 'e') {
+    e.preventDefault()
+    toggleVideo()
+    return
+  }
+}
 
 async function requestPermissionsAndDevices() {
   try {
