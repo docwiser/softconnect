@@ -634,6 +634,7 @@ export const useMeetingStore = defineStore('meeting', () => {
     localStream.value.getAudioTracks().forEach(t => { t.enabled = !newMuted })
     isAudioMuted.value = newMuted
     scheduleStateFlush()
+    addScreenReaderAnnouncement(newMuted ? 'Microphone off' : 'Microphone on')
   }
 
   function toggleVideo(): void {
@@ -646,6 +647,7 @@ export const useMeetingStore = defineStore('meeting', () => {
     localStream.value.getVideoTracks().forEach(t => { t.enabled = !newOff })
     isVideoOff.value = newOff
     scheduleStateFlush()
+    addScreenReaderAnnouncement(newOff ? 'Camera off' : 'Camera on')
   }
 
   async function toggleScreenShare(): Promise<void> {
@@ -672,6 +674,7 @@ export const useMeetingStore = defineStore('meeting', () => {
 
         screenTrack.onended = () => stopScreenShareInternal()
         addNotification('Screen sharing started', 'info')
+        addScreenReaderAnnouncement('You started sharing your screen')
       } catch {
         addNotification('Screen share cancelled', 'info')
       }
@@ -693,6 +696,7 @@ export const useMeetingStore = defineStore('meeting', () => {
       if (sender) sender.replaceTrack(camTrack).catch(() => {})
     }
     addNotification('Screen sharing stopped', 'info')
+    addScreenReaderAnnouncement('You stopped sharing your screen')
   }
 
   async function switchAudioInput(deviceId: string): Promise<void> {
@@ -734,7 +738,12 @@ export const useMeetingStore = defineStore('meeting', () => {
   async function toggleHandRaise(): Promise<void> {
     isHandRaised.value = !isHandRaised.value
     scheduleStateFlush()
-    if (isHandRaised.value) addNotification('You raised your hand ✋', 'info')
+    if (isHandRaised.value) {
+      addNotification('You raised your hand ✋', 'info')
+      addScreenReaderAnnouncement('You raised your hand')
+    } else {
+      addScreenReaderAnnouncement('You lowered your hand')
+    }
   }
 
   // ── Host controls ─────────────────────────────────────────────────────────
@@ -744,6 +753,8 @@ export const useMeetingStore = defineStore('meeting', () => {
     if (!mId || !canManageParticipants.value) return
     await hostMuteParticipant(mId, targetUid, true)
     addNotification('Participant muted', 'info')
+    const p = meeting.value?.participants[targetUid]
+    if (p) addScreenReaderAnnouncement(`You muted ${p.displayName}`)
   }
 
   async function hostRequestUnmute(targetUid: string): Promise<void> {
@@ -759,12 +770,15 @@ export const useMeetingStore = defineStore('meeting', () => {
     if (!participant) return
     await removeParticipant(mId, targetUid)
     addNotification(`${participant.displayName} removed`, 'info')
+    addScreenReaderAnnouncement(`You removed ${participant.displayName} from the meeting`)
   }
 
   async function hostLowerHand(targetUid: string): Promise<void> {
     const mId = meetingId.value
     if (!mId || !canManageParticipants.value) return
+    const p = meeting.value?.participants[targetUid]
     await updateParticipantState(mId, targetUid, { isHandRaised: false })
+    if (p) addScreenReaderAnnouncement(`You lowered ${p.displayName}'s hand`)
   }
 
   async function hostMuteAll(): Promise<void> {
@@ -777,6 +791,7 @@ export const useMeetingStore = defineStore('meeting', () => {
       await hostMuteParticipant(mId, p.uid, true)
     }
     addNotification('All participants muted', 'info')
+    addScreenReaderAnnouncement('You muted everyone in the meeting')
   }
 
   async function hostSetPermission(
@@ -792,13 +807,17 @@ export const useMeetingStore = defineStore('meeting', () => {
   async function hostPromote(targetUid: string): Promise<void> {
     const mId = meetingId.value
     if (!mId || !isHost.value) return
+    const p = meeting.value?.participants[targetUid]
     await promoteToCoHost(mId, targetUid)
+    if (p) addScreenReaderAnnouncement(`You promoted ${p.displayName} to co-host`)
   }
 
   async function hostDemote(targetUid: string): Promise<void> {
     const mId = meetingId.value
     if (!mId || !isHost.value) return
+    const p = meeting.value?.participants[targetUid]
     await demoteFromCoHost(mId, targetUid)
+    if (p) addScreenReaderAnnouncement(`You demoted ${p.displayName} from co-host`)
   }
 
   async function hostUpdateSettings(settings: Partial<MeetingSettings>): Promise<void> {

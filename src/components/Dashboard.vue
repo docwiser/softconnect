@@ -117,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watchEffect, onUnmounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { logoutUser, auth } from '../services/firebase'
@@ -133,6 +133,19 @@ const announcement = ref('')
 const profile = computed(() => appStore.currentUserProfile)
 const currentUser = computed(() => auth.currentUser)
 const callState = computed(() => appStore.callState)
+const totalUnreadCount = computed(() => appStore.totalUnreadCount)
+
+// Update document.title
+watchEffect(() => {
+  const username = profile.value?.username || 'User'
+  const countStr = totalUnreadCount.value > 0 ? `(${totalUnreadCount.value}) ` : ''
+  document.title = `${countStr}${username} | Soft Connect`
+})
+
+// Reset title when leaving
+onUnmounted(() => {
+  document.title = 'Soft Connect'
+})
 
 const filteredChats = computed(() => {
   const q = chatSearch.value.toLowerCase()

@@ -7,6 +7,10 @@
           <span class="badge-icon" aria-hidden="true">◈</span>
           <span class="badge-title">{{ meetingStore.meeting?.title || 'Meeting' }}</span>
         </div>
+        <div class="divider" aria-hidden="true">|</div>
+        <time class="room-clock" :datetime="now.toISOString()">
+          {{ formattedClock }}
+        </time>
         <time class="room-timer" :aria-label="`Meeting duration: ${elapsedDisplay}`" aria-live="off">
           {{ elapsedDisplay }}
         </time>
@@ -373,10 +377,10 @@
       <div class="ctrl-group" role="group" aria-label="Audio and video">
         <div class="ctrl-split">
           <button :class="['ctrl-btn', { off: meetingStore.isAudioMuted }]" @click="meetingStore.toggleAudio()"
-            :aria-label="meetingStore.isAudioMuted ? 'Unmute microphone' : 'Mute microphone'" :aria-pressed="meetingStore.isAudioMuted">
+            :aria-label="meetingStore.isAudioMuted ? 'Microphone on' : 'Microphone off'" :aria-pressed="meetingStore.isAudioMuted">
             <svg v-if="!meetingStore.isAudioMuted" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
             <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6M17 16.95A7 7 0 015 12v-2"/></svg>
-            <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isAudioMuted ? 'Unmute' : 'Mute' }}</span>
+            <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isAudioMuted ? 'Microphone on' : 'Microphone off' }}</span>
           </button>
           <button class="ctrl-caret" @click="meetingStore.isSettingsPanelOpen = !meetingStore.isSettingsPanelOpen" aria-label="Audio settings" title="Audio settings">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
@@ -385,10 +389,10 @@
 
         <div class="ctrl-split">
           <button :class="['ctrl-btn', { off: meetingStore.isVideoOff }]" @click="meetingStore.toggleVideo()"
-            :aria-label="meetingStore.isVideoOff ? 'Turn camera on' : 'Turn camera off'" :aria-pressed="meetingStore.isVideoOff">
+            :aria-label="meetingStore.isVideoOff ? 'Camera on' : 'Camera off'" :aria-pressed="meetingStore.isVideoOff">
             <svg v-if="!meetingStore.isVideoOff" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
             <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-            <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isVideoOff ? 'Start Video' : 'Stop Video' }}</span>
+            <span class="ctrl-label" aria-hidden="true">{{ meetingStore.isVideoOff ? 'Camera on' : 'Camera off' }}</span>
           </button>
           <button class="ctrl-caret" @click="meetingStore.isSettingsPanelOpen = !meetingStore.isSettingsPanelOpen" aria-label="Video settings">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
@@ -529,11 +533,18 @@ const showReactionPicker    = ref(false)
 const chatInput             = ref('')
 const openParticipantMenu   = ref<string | null>(null)
 const elapsedMs             = ref(0)
+const now                   = ref(new Date())
 let timerInterval: ReturnType<typeof setInterval> | null = null
+let clockInterval: ReturnType<typeof setInterval> | null = null
 
 interface Reaction { id: string; emoji: string; x: number }
 const reactions     = ref<Reaction[]>([])
 const reactionEmojis = ['👍', '👎', '❤️', '😂', '😮', '🎉', '🙌', '🔥']
+
+const formattedClock = computed(() => {
+  return now.value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }) + ', ' +
+         now.value.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+})
 
 const elapsedDisplay = computed(() => {
   const s = Math.floor(elapsedMs.value / 1000)
@@ -571,20 +582,32 @@ onMounted(async () => {
   }
   await meetingStore.enumerateDevices()
   timerInterval = setInterval(() => { elapsedMs.value += 1000 }, 1000)
+  clockInterval = setInterval(() => { now.value = new Date() }, 1000)
   meetingStore.addScreenReaderAnnouncement(`You joined the meeting: ${meetingStore.meeting?.title}`)
   document.addEventListener('click', handleClickOutside)
+  window.addEventListener('keydown', handleGlobalKeydown)
 })
 
 onUnmounted(() => {
   if (timerInterval) clearInterval(timerInterval)
+  if (clockInterval) clearInterval(clockInterval)
   document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('keydown', handleGlobalKeydown)
 })
 
 watch(() => meetingStore.localStream, s => {
   if (s && localVideoRef.value) localVideoRef.value.srcObject = s
 })
 
-watch(() => meetingStore.chatMessages.length, async () => {
+watch(() => meetingStore.chatMessages.length, async (newLen, oldLen) => {
+  // Announce new messages
+  if (newLen > oldLen) {
+    const lastMsg = meetingStore.chatMessages[newLen - 1]
+    if (lastMsg && lastMsg.senderUid !== currentUser.value?.uid) {
+      meetingStore.addScreenReaderAnnouncement(`New message from ${lastMsg.senderName}: ${lastMsg.content}`)
+    }
+  }
+
   if (meetingStore.isChatOpen && chatMessagesRef.value) {
     await nextTick()
     chatMessagesRef.value.scrollTop = chatMessagesRef.value.scrollHeight
@@ -597,6 +620,56 @@ watch(showLeaveDialog, async open => {
 
 function handleClickOutside(e: MouseEvent) {
   if (openParticipantMenu.value) openParticipantMenu.value = null
+}
+
+function handleGlobalKeydown(e: KeyboardEvent) {
+  // Shortcuts from Google Meet
+  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+  const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey
+
+  // Don't trigger if typing in an input/textarea
+  if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+    if (e.key === 'Escape') handleEscape()
+    return
+  }
+
+  // Ctrl/Cmd + d: Microphone
+  if (cmdOrCtrl && e.key.toLowerCase() === 'd') {
+    e.preventDefault()
+    meetingStore.toggleAudio()
+    return
+  }
+  // Ctrl/Cmd + e: Camera
+  if (cmdOrCtrl && e.key.toLowerCase() === 'e') {
+    e.preventDefault()
+    meetingStore.toggleVideo()
+    return
+  }
+  // Ctrl/Cmd + Alt + h: Hand raise
+  if (cmdOrCtrl && e.altKey && e.key.toLowerCase() === 'h') {
+    e.preventDefault()
+    meetingStore.toggleHandRaise()
+    return
+  }
+  // Ctrl/Cmd + Alt + c: Chat
+  if (cmdOrCtrl && e.altKey && e.key.toLowerCase() === 'c') {
+    e.preventDefault()
+    if (meetingStore.isChatOpen) meetingStore.closeChat()
+    else meetingStore.openChat()
+    return
+  }
+  // Ctrl/Cmd + Alt + p: People
+  if (cmdOrCtrl && e.altKey && e.key.toLowerCase() === 'p') {
+    e.preventDefault()
+    meetingStore.isParticipantsPanelOpen = !meetingStore.isParticipantsPanelOpen
+    return
+  }
+  // Ctrl/Cmd + Alt + s: Screen share
+  if (cmdOrCtrl && e.altKey && e.key.toLowerCase() === 's') {
+    e.preventDefault()
+    meetingStore.toggleScreenShare()
+    return
+  }
 }
 
 function handleEscape() {
@@ -672,6 +745,8 @@ function formatMsgTime(ts?: number): string {
 .meeting-name-badge { display:flex;align-items:center;gap:.5rem; }
 .badge-icon { background:linear-gradient(135deg,#5c3bff,#ff3b8c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:1.1rem; }
 .badge-title { font-weight:700;font-size:.95rem;color:#fff; }
+.divider { color: rgba(255,255,255,0.2); font-size: 0.8rem; }
+.room-clock { font-size: 0.85rem; color: #fff; font-weight: 500; }
 .room-timer { font-family:monospace;font-size:.85rem;color:rgba(255,255,255,.5); }
 .recording-badge { display:flex;align-items:center;gap:.375rem;background:rgba(255,59,92,.2);border:1px solid rgba(255,59,92,.35);border-radius:999px;padding:.2rem .625rem;font-size:.75rem;font-weight:700;color:#ff6b8a; }
 .rec-dot { width:6px;height:6px;border-radius:50%;background:#ff3b5c;animation:pulse 1s infinite; }

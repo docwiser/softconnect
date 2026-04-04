@@ -56,6 +56,14 @@ export const useAppStore = defineStore('app', () => {
     })
   })
 
+  const totalUnreadCount = computed(() => {
+    const uid = currentUserProfile.value?.uid
+    if (!uid) return 0
+    return chats.value.reduce((acc, chat) => {
+      return acc + (chat.unreadCounts?.[uid] || 0)
+    }, 0)
+  })
+
   const myBlockedUsers = computed(() => currentUserProfile.value?.blockedUsers || [])
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -148,6 +156,7 @@ export const useAppStore = defineStore('app', () => {
     // Computed
     activeChatData,
     sortedChats,
+    totalUnreadCount,
     myBlockedUsers,
     // Actions
     setUserProfile,
