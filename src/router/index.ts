@@ -58,6 +58,12 @@ const router = createRouter({
       component: () => import('../components/CallHistoryScreen.vue'),
       meta: { requiresAuth: true, title: 'Call History — Soft Connect' }
     },
+    {
+      path: '/blocklist',
+      name: 'blocklist',
+      component: () => import('../components/BlocklistScreen.vue'),
+      meta: { requiresAuth: true, title: 'Blocklist — Soft Connect' }
+    },
     // ── Meetings ──────────────────────────────────────────────────────────────
     {
       path: '/meetings',
@@ -152,6 +158,7 @@ router.afterEach((to) => {
       'profile': 'User profile',
       'settings': 'Settings',
       'call-history': 'Call history',
+      'blocklist': 'Blocklist',
       'meetings': 'Meetings',
       'meeting-prejoin': 'Join meeting',
       'meeting-room': 'Meeting room',

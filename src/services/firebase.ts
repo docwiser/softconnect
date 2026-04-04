@@ -392,6 +392,14 @@ export async function deleteMessage(chatId: string, messageId: string): Promise<
   })
 }
 
+export async function deleteChat(chatId: string): Promise<void> {
+  const batch = writeBatch(db)
+  const messagesSnap = await getDocs(collection(db, 'chats', chatId, 'messages'))
+  messagesSnap.forEach(d => batch.delete(d.ref))
+  batch.delete(doc(db, 'chats', chatId))
+  await batch.commit()
+}
+
 // ─── Call History Functions ───────────────────────────────────────────────────
 export async function createCallRecord(record: Omit<CallRecord, 'id'>): Promise<string> {
   const ref = await addDoc(collection(db, 'calls'), record)

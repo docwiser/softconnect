@@ -391,7 +391,14 @@ export const usePeerStore = defineStore('peer', () => {
   }
 
   function handleRemoteHold(isOnHold: boolean) {
+    // When the other person puts US on hold, we stop hearing THEM (their stream tracks should already be disabled by them)
+    // but we also mute locally to be sure and play hold music
+    remoteStream.value?.getAudioTracks().forEach(t => { t.enabled = !isOnHold })
+    
+    appStore.updateCallState({ isOnHold })
     appStore.addNotification(isOnHold ? 'You were put on hold' : 'Call resumed')
+    
+    if (isOnHold) playHoldAudio(); else stopHoldAudio()
   }
 
   function endCall() {
@@ -433,6 +440,20 @@ export const usePeerStore = defineStore('peer', () => {
     call.on('stream', (stream) => {
       remoteStream.value = stream
     })
+    
+    // Add ontrack listener to catch added tracks (like video added later)
+    if (call.peerConnection) {
+      call.peerConnection.ontrack = (event) => {
+        if (remoteStream.value) {
+          if (!remoteStream.value.getTracks().includes(event.track)) {
+            remoteStream.value.addTrack(event.track)
+          }
+        } else {
+          remoteStream.value = event.streams[0]
+        }
+      }
+    }
+
     call.on('close', () => {
       appStore.addNotification('Call ended', 'info')
       cleanupCall()
@@ -457,27 +478,44 @@ export const usePeerStore = defineStore('peer', () => {
   async function toggleVideo() {
     if (!appStore.callState.isVideoEnabled) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+        // Try to get video track only if we already have audio
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+        const vTrack = stream.getVideoTracks()[0]
+        
         if (localStream.value) {
-          localStream.value.getTracks().forEach(t => t.stop())
+          localStream.value.addTrack(vTrack)
+        } else {
+          localStream.value = stream
         }
-        localStream.value = stream
+
         const peerConnId = appStore.callState.peerConnectionId
         const call = mediaConnections.get(peerConnId)
         if (call?.peerConnection) {
-          const vTrack = stream.getVideoTracks()[0]
           const sender = call.peerConnection.getSenders().find(s => s.track?.kind === 'video')
-          if (sender) await sender.replaceTrack(vTrack)
-          else call.peerConnection.addTrack(vTrack, stream)
+          if (sender) {
+            await sender.replaceTrack(vTrack)
+          } else {
+            // If no video sender exists, we have to add it.
+            // Note: PeerJS might not automatically re-negotiate here.
+            call.peerConnection.addTrack(vTrack, localStream.value!)
+            // Some PeerJS versions/browsers need a manual renegotiation hint or just work if using Unified Plan
+          }
         }
         appStore.updateCallState({ isVideoEnabled: true })
-      } catch {
-        throw new Error('Camera access denied')
+      } catch (err: any) {
+        console.error('toggleVideo error:', err)
+        throw new Error('Camera access denied or failed')
       }
     } else {
       const vTrack = localStream.value?.getVideoTracks()[0]
-      if (vTrack) { vTrack.enabled = false; vTrack.stop() }
+      if (vTrack) {
+        vTrack.enabled = false
+        vTrack.stop()
+        localStream.value?.removeTrack(vTrack)
+      }
       appStore.updateCallState({ isVideoEnabled: false })
+      // Inform the other side we stopped video
+      sendDataToPeer(appStore.callState.peerConnectionId, { type: 'config', data: { video: false } })
     }
   }
 
@@ -520,9 +558,16 @@ export const usePeerStore = defineStore('peer', () => {
 
   function toggleHold() {
     const isOnHold = !appStore.callState.isOnHold
+    
+    // Mute our microphone so they don't hear us
     localStream.value?.getAudioTracks().forEach(t => { t.enabled = !isOnHold })
+    
+    // Mute their incoming audio so we don't hear them
+    remoteStream.value?.getAudioTracks().forEach(t => { t.enabled = !isOnHold })
+
     appStore.updateCallState({ isOnHold })
     sendDataToPeer(appStore.callState.peerConnectionId, { type: 'hold', data: isOnHold })
+    
     if (isOnHold) playHoldAudio(); else stopHoldAudio()
   }
 

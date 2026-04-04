@@ -110,14 +110,16 @@
 
       <!-- Video / Audio Display -->
       <main class="media-area" aria-label="Call media">
+        <!-- Remote Video/Audio Element — MUST always be present for audio to play -->
+        <video
+          ref="remoteVideoEl"
+          :class="['remote-video', { 'hidden-video': !callState.isVideoEnabled && !hasRemoteVideo }]"
+          autoplay
+          playsinline
+          :aria-label="`Video from ${callState.peerName}`"
+        ></video>
+
         <div v-if="callState.isVideoEnabled || hasRemoteVideo" class="video-container">
-          <video
-            ref="remoteVideoEl"
-            class="remote-video"
-            autoplay
-            playsinline
-            :aria-label="`Video from ${callState.peerName}`"
-          ></video>
           <video
             ref="localVideoEl"
             class="local-video"
@@ -616,6 +618,9 @@ function setSpeed(e: Event) {
 .call-timer { font-family: monospace; font-size: 1rem; color: rgba(255,255,255,0.62); }
 
 .media-area { flex: 1; position: relative; background: #000; min-height: 0; }
+.remote-video.hidden-video {
+  position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+}
 .video-container { width: 100%; height: 100%; position: relative; }
 .remote-video { width: 100%; height: 100%; object-fit: cover; }
 .local-video {

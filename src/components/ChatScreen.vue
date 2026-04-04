@@ -36,43 +36,67 @@
 
       <!-- Action buttons -->
       <div class="header-actions" role="toolbar" :aria-label="`Actions for chat with ${peerName}`">
-        <button
-          class="header-btn"
-          @click="startCall(false)"
-          :disabled="isCallActive || !peerOnline"
-          :aria-label="peerOnline ? `Start voice call with ${peerName}` : `${peerName} is offline — voice call unavailable`"
-          :title="peerOnline ? 'Voice call' : 'User offline'"
-          :aria-disabled="isCallActive || !peerOnline"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.01 1.18 2 2 0 012 0h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14v2.92z"/>
-          </svg>
-        </button>
-        <button
-          class="header-btn"
-          @click="startCall(true)"
-          :disabled="isCallActive || !peerOnline"
-          :aria-label="peerOnline ? `Start video call with ${peerName}` : `${peerName} is offline — video call unavailable`"
-          :title="peerOnline ? 'Video call' : 'User offline'"
-          :aria-disabled="isCallActive || !peerOnline"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polygon points="23 7 16 12 23 17 23 7"/>
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-          </svg>
-        </button>
-        <button
-          class="header-btn"
-          @click="toggleMenu"
-          :aria-label="showMenu ? 'Close options menu' : 'More options'"
-          :aria-expanded="showMenu"
-          aria-haspopup="true"
-          ref="menuTriggerRef"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
-          </svg>
-        </button>
+        <template v-if="isBlocked">
+          <button
+            class="header-btn unblock-btn-header"
+            @click="showUnblockModal = true"
+            aria-label="Unblock user"
+            title="Unblock"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+            </svg>
+          </button>
+          <button
+            class="header-btn delete-btn-header"
+            @click="showDeleteChatModal = true"
+            aria-label="Delete chat"
+            title="Delete Chat"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/>
+            </svg>
+          </button>
+        </template>
+        <template v-else>
+          <button
+            class="header-btn"
+            @click="startCall(false)"
+            :disabled="isCallActive || !peerOnline"
+            :aria-label="peerOnline ? `Start voice call with ${peerName}` : `${peerName} is offline — voice call unavailable`"
+            :title="peerOnline ? 'Voice call' : 'User offline'"
+            :aria-disabled="isCallActive || !peerOnline"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.01 1.18 2 2 0 012 0h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14v2.92z"/>
+            </svg>
+          </button>
+          <button
+            class="header-btn"
+            @click="startCall(true)"
+            :disabled="isCallActive || !peerOnline"
+            :aria-label="peerOnline ? `Start video call with ${peerName}` : `${peerName} is offline — video call unavailable`"
+            :title="peerOnline ? 'Video call' : 'User offline'"
+            :aria-disabled="isCallActive || !peerOnline"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="23 7 16 12 23 17 23 7"/>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+          </button>
+          <button
+            class="header-btn"
+            @click="toggleMenu"
+            :aria-label="showMenu ? 'Close options menu' : 'More options'"
+            :aria-expanded="showMenu"
+            aria-haspopup="true"
+            ref="menuTriggerRef"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
+            </svg>
+          </button>
+        </template>
       </div>
 
       <!-- Context Menu -->
@@ -291,7 +315,14 @@
 
     <!-- Input area -->
     <footer class="input-area" role="contentinfo" aria-label="Compose message">
-      <form @submit.prevent="sendMsg" :aria-label="`Send a message to ${peerName}`">
+      <div v-if="isBlocked" class="blocked-input-area">
+        <p class="blocked-hint">You have blocked this user. Unblock to resume chatting.</p>
+        <div class="blocked-actions">
+          <button class="blocked-btn unblock" @click="showUnblockModal = true">Unblock</button>
+          <button class="blocked-btn delete" @click="showDeleteChatModal = true">Delete Chat</button>
+        </div>
+      </div>
+      <form v-else @submit.prevent="sendMsg" :aria-label="`Send a message to ${peerName}`">
         <button
           type="button"
           class="attach-btn"
@@ -423,10 +454,58 @@
           @keydown.escape="showBlockModal = false"
         >
           <h2 id="block-dialog-title">Block {{ peerName }}?</h2>
-          <p id="block-dialog-desc">They won't be able to send you messages or call you. You can unblock from their profile.</p>
+          <p id="block-dialog-desc">They won't be able to send you messages or call you. You can unblock later from the Blocklist or this chat.</p>
           <div class="modal-actions">
             <button class="modal-cancel" @click="showBlockModal = false">Cancel</button>
             <button class="modal-confirm" @click="doBlockPeer" :aria-label="`Confirm blocking ${peerName}`">Block</button>
+          </div>
+        </dialog>
+      </div>
+    </Transition>
+
+    <!-- Unblock confirm dialog -->
+    <Transition name="modal-fade">
+      <div
+        v-if="showUnblockModal"
+        class="modal-overlay"
+        @click.self="showUnblockModal = false"
+        role="presentation"
+      >
+        <dialog
+          open
+          class="modal"
+          :aria-label="`Unblock ${peerName}`"
+          @keydown.escape="showUnblockModal = false"
+        >
+          <h2 id="unblock-dialog-title">Unblock {{ peerName }}?</h2>
+          <p id="unblock-dialog-desc">They will be able to send you messages and call you again.</p>
+          <div class="modal-actions">
+            <button class="modal-cancel" @click="showUnblockModal = false">Cancel</button>
+            <button class="modal-confirm" @click="doUnblockPeer" :aria-label="`Confirm unblocking ${peerName}`">Unblock</button>
+          </div>
+        </dialog>
+      </div>
+    </Transition>
+
+    <!-- Delete chat confirm dialog -->
+    <Transition name="modal-fade">
+      <div
+        v-if="showDeleteChatModal"
+        class="modal-overlay"
+        @click.self="showDeleteChatModal = false"
+        role="presentation"
+      >
+        <dialog
+          open
+          class="modal"
+          aria-label="Delete entire chat"
+          @keydown.escape="showDeleteChatModal = false"
+        >
+          <h2>Delete this chat?</h2>
+          <p>This will permanently delete all messages for both you and {{ peerName }}. This cannot be undone.</p>
+          <div class="modal-actions">
+            <button class="modal-cancel" @click="showDeleteChatModal = false">Cancel</button>
+            <button class="modal-confirm" @click="doDeleteChat">Delete</button>
           </div>
         </dialog>
       </div>
@@ -474,7 +553,9 @@ import {
   listenToChatMessages,
   listenToUserPresence,
   blockUser,
-  getUserProfile
+  unblockUser,
+  getUserProfile,
+  deleteChat
 } from '../services/firebase'
 import type { Message, UserProfile } from '../services/firebase'
 import { doc, getDoc } from 'firebase/firestore'
@@ -490,6 +571,8 @@ const newMsg = ref('')
 const announcement = ref('')
 const showMenu = ref(false)
 const showBlockModal = ref(false)
+const showUnblockModal = ref(false)
+const showDeleteChatModal = ref(false)
 const showClearModal = ref(false)
 const showProfileDialog = ref(false)
 const peerOnline = ref(false)
@@ -522,6 +605,7 @@ const peerId = computed(() => chatData.value?.participants.find(uid => uid !== m
 const peerName = computed(() => chatData.value?.participantNames[peerId.value] || 'Unknown')
 const peerPhoto = computed(() => chatData.value?.participantPhotos?.[peerId.value] || null)
 const isCallActive = computed(() => appStore.callState.isActive || appStore.callState.isIncoming)
+const isBlocked = computed(() => appStore.myBlockedUsers.includes(peerId.value))
 
 const lastSeenText = computed(() => {
   if (!peerLastSeen.value) return 'Offline'
@@ -812,10 +896,35 @@ async function doBlockPeer() {
     await blockUser(myUid.value, peerId.value)
     showBlockModal.value = false
     appStore.addNotification(`${peerName.value} blocked`, 'success')
-    router.push('/dashboard')
+    // No longer redirecting to dashboard, let the UI handle it
   } catch (e: any) {
     appStore.addNotification(e.message || 'Could not block user', 'error')
     showBlockModal.value = false
+  }
+}
+
+async function doUnblockPeer() {
+  if (!myUid.value) return
+  try {
+    await unblockUser(myUid.value, peerId.value)
+    showUnblockModal.value = false
+    appStore.addNotification(`${peerName.value} unblocked`, 'success')
+    announcement.value = `${peerName.value} has been unblocked`
+  } catch (e: any) {
+    appStore.addNotification(e.message || 'Could not unblock user', 'error')
+    showUnblockModal.value = false
+  }
+}
+
+async function doDeleteChat() {
+  try {
+    await deleteChat(chatId.value)
+    showDeleteChatModal.value = false
+    appStore.addNotification('Chat deleted', 'success')
+    router.push('/dashboard')
+  } catch (e) {
+    appStore.addNotification('Could not delete chat', 'error')
+    showDeleteChatModal.value = false
   }
 }
 
@@ -963,6 +1072,9 @@ function goBack() {
 }
 .header-btn:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
 .header-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.unblock-btn-header { color: #a78bfa !important; background: rgba(92,59,255,0.1) !important; }
+.delete-btn-header { color: #ff6b8a !important; background: rgba(255,59,92,0.1) !important; }
 
 /* Context Menu */
 .context-menu {
@@ -1238,6 +1350,49 @@ function goBack() {
   background: rgba(10,12,24,0.97);
   border-top: 1px solid rgba(255,255,255,0.07);
 }
+
+.blocked-input-area {
+  padding: 1.5rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: rgba(15,20,35,0.95);
+}
+.blocked-hint {
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.45);
+  margin: 0;
+}
+.blocked-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+.blocked-btn {
+  padding: 0.625rem 1.25rem;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 44px;
+  border: none;
+  font-family: inherit;
+}
+.blocked-btn.unblock {
+  background: rgba(92,59,255,0.2);
+  color: #a78bfa;
+  border: 1px solid rgba(92,59,255,0.3);
+}
+.blocked-btn.unblock:hover { background: rgba(92,59,255,0.3); }
+.blocked-btn.delete {
+  background: rgba(255,59,92,0.1);
+  color: #ff6b8a;
+  border: 1px solid rgba(255,59,92,0.2);
+}
+.blocked-btn.delete:hover { background: rgba(255,59,92,0.2); }
+
 .input-area form {
   padding: 0.75rem 1rem;
   display: flex;

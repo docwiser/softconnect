@@ -38,6 +38,11 @@
           </RouterLink>
         </li>
         <li role="listitem">
+          <RouterLink class="nav-item" to="/blocklist" aria-label="View blocklist">
+            <span class="nav-icon" aria-hidden="true">🛡️</span> Blocklist
+          </RouterLink>
+        </li>
+        <li role="listitem">
           <RouterLink class="nav-item" :to="`/profile/${currentUser?.uid}`" aria-label="View my profile">
             <span class="nav-icon" aria-hidden="true">👤</span> My Profile
           </RouterLink>
