@@ -1,78 +1,5 @@
 <template>
   <div class="dashboard" id="main-content">
-    <div v-if="sidebarOpen" class="sidebar-overlay" @click="sidebarOpen = false" aria-hidden="true"></div>
-
-    <nav class="sidebar" :class="{ open: sidebarOpen }" aria-label="Primary" :aria-hidden="!sidebarOpen && isMobile ? 'true' : undefined">
-      <div class="sidebar-header">
-        <div class="app-brand" role="img" aria-label="Soft Connect">
-          <span class="brand-icon" aria-hidden="true">◈</span>
-          <span class="brand-name">Soft Connect</span>
-        </div>
-        <button class="sidebar-close" @click="sidebarOpen = false" aria-label="Close navigation menu">
-          <span aria-hidden="true">✕</span>
-        </button>
-      </div>
-
-      <ul class="sidebar-nav" role="list">
-        <li role="listitem">
-          <button class="nav-item active" aria-current="page" aria-label="Chats, current page">
-            <span class="nav-icon" aria-hidden="true">💬</span> Chats
-          </button>
-        </li>
-        <li role="listitem">
-          <RouterLink class="nav-item" to="/new-chat" aria-label="Start new conversation">
-            <span class="nav-icon" aria-hidden="true">✏️</span> New Chat
-          </RouterLink>
-        </li>
-        <li role="listitem">
-          <RouterLink class="nav-item" to="/meetings" aria-label="Meetings">
-            <span class="nav-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
-            </span>
-            Meetings
-          </RouterLink>
-        </li>
-        <li role="listitem">
-          <RouterLink class="nav-item" to="/call-history" aria-label="View call history">
-            <span class="nav-icon" aria-hidden="true">📋</span> Call History
-          </RouterLink>
-        </li>
-        <li role="listitem">
-          <RouterLink class="nav-item" to="/blocklist" aria-label="View blocklist">
-            <span class="nav-icon" aria-hidden="true">🛡️</span> Blocklist
-          </RouterLink>
-        </li>
-        <li role="listitem">
-          <RouterLink class="nav-item" :to="`/profile/${currentUser?.uid}`" aria-label="View my profile">
-            <span class="nav-icon" aria-hidden="true">👤</span> My Profile
-          </RouterLink>
-        </li>
-        <li role="listitem">
-          <RouterLink class="nav-item" to="/settings" aria-label="Open settings">
-            <span class="nav-icon" aria-hidden="true">⚙️</span> Settings
-          </RouterLink>
-        </li>
-        <li role="listitem">
-          <button class="nav-item logout-btn" @click="handleLogout" aria-label="Sign out of your account">
-            <span class="nav-icon" aria-hidden="true">🚪</span> Sign Out
-          </button>
-        </li>
-      </ul>
-
-      <div class="my-card" aria-label="Your account">
-        <button class="my-avatar" @click="router.push(`/profile/${currentUser?.uid}`)" :aria-label="`View your profile: ${profile?.displayName}`">
-          <img v-if="profile?.photoURL" :src="profile.photoURL" :alt="profile.displayName" />
-          <span v-else aria-hidden="true">{{ profile?.displayName?.charAt(0)?.toUpperCase() }}</span>
-          <span class="online-dot" aria-hidden="true"></span>
-          <span class="sr-only">You are online</span>
-        </button>
-        <div class="my-info">
-          <strong>{{ profile?.displayName }}</strong>
-          <span class="my-username" aria-label="Your username">@{{ profile?.username }}</span>
-        </div>
-      </div>
-    </nav>
-
     <div class="main-area">
       <header class="dashboard-header" role="banner">
         <div class="brand-section">
@@ -80,9 +7,6 @@
             <span class="brand-icon" aria-hidden="true">◈</span>
             <span class="brand-name">Soft Connect</span>
           </div>
-          <button class="menu-btn" @click="sidebarOpen = !sidebarOpen" :aria-label="sidebarOpen ? 'Close navigation menu' : 'Open navigation menu'" :aria-expanded="sidebarOpen">
-            <span aria-hidden="true">☰</span>
-          </button>
         </div>
 
         <div class="nav-tabs" role="tablist">
@@ -99,11 +23,17 @@
               More options <span aria-hidden="true">▼</span>
             </button>
             <div v-if="moreOptionsOpen" class="more-menu" role="menu">
+              <RouterLink :to="`/profile/${currentUser?.uid}`" class="menu-link" role="menuitem">My Profile</RouterLink>
+              <RouterLink to="/blocklist" class="menu-link" role="menuitem">My Blocklist</RouterLink>
+              <RouterLink to="/settings" class="menu-link" role="menuitem">Settings</RouterLink>
+              <div class="menu-divider" role="separator"></div>
               <RouterLink to="/about" class="menu-link" role="menuitem">About</RouterLink>
               <RouterLink to="/help-support" class="menu-link" role="menuitem">Help & Support</RouterLink>
               <RouterLink to="/privacy-policy" class="menu-link" role="menuitem">Privacy Policy</RouterLink>
               <RouterLink to="/terms-of-use" class="menu-link" role="menuitem">Terms of Use</RouterLink>
               <RouterLink to="/ugc-disclosure" class="menu-link" role="menuitem">UGC Disclosure</RouterLink>
+              <div class="menu-divider" role="separator"></div>
+              <button class="menu-link logout-item" role="menuitem" @click="showLogoutConfirm = true">Sign Out</button>
             </div>
           </div>
         </div>
@@ -169,11 +99,25 @@
     </div>
 
     <div aria-live="polite" aria-atomic="true" class="sr-only" role="status">{{ announcement }}</div>
+
+    <!-- Sign Out Confirmation Modal -->
+    <Transition name="modal-fade">
+      <div v-if="showLogoutConfirm" class="modal-overlay" @click.self="showLogoutConfirm = false" role="presentation">
+        <dialog open class="confirm-dialog" aria-labelledby="logout-title" @keydown.escape="showLogoutConfirm = false">
+          <h2 id="logout-title">Sign Out?</h2>
+          <p>Are you sure you want to sign out of your account?</p>
+          <div class="form-actions-modal">
+            <button class="btn-cancel-modal" @click="showLogoutConfirm = false">Cancel</button>
+            <button class="btn-logout-modal" @click="handleLogout">Sign Out</button>
+          </div>
+        </dialog>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { logoutUser, auth } from '../services/firebase'
@@ -181,11 +125,10 @@ import type { Chat } from '../services/firebase'
 
 const router = useRouter()
 const appStore = useAppStore()
-const sidebarOpen = ref(false)
 const moreOptionsOpen = ref(false)
+const showLogoutConfirm = ref(false)
 const chatSearch = ref('')
 const announcement = ref('')
-const isMobile = ref(false)
 
 const profile = computed(() => appStore.currentUserProfile)
 const currentUser = computed(() => auth.currentUser)
@@ -198,10 +141,6 @@ const filteredChats = computed(() => {
     return getPeerName(chat).toLowerCase().includes(q) || getPreview(chat).toLowerCase().includes(q)
   })
 })
-
-function checkMobile() { isMobile.value = window.innerWidth < 768 }
-onMounted(() => { checkMobile(); window.addEventListener('resize', checkMobile) })
-onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
 function getPeerId(chat: Chat & { id: string }) { return chat.participants.find(uid => uid !== auth.currentUser?.uid) || '' }
 function getPeerName(chat: Chat & { id: string }) { return chat.participantNames[getPeerId(chat)] || 'Unknown' }
@@ -244,31 +183,11 @@ async function handleLogout() {
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@700;800&display=swap');
 * { box-sizing: border-box; }
-.dashboard { display: flex; height: 100vh; background: #070a14; font-family: 'DM Sans', sans-serif; color: #e2e8f0; position: relative; overflow: hidden; }
-.sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 150; backdrop-filter: blur(2px); }
-.sidebar { width: 260px; background: rgba(10,12,24,0.97); border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; padding: 1.5rem 1rem; gap: 0.5rem; flex-shrink: 0; backdrop-filter: blur(20px); z-index: 160; }
-.sidebar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
+.dashboard { display: block; height: 100vh; background: #070a14; font-family: 'DM Sans', sans-serif; color: #e2e8f0; position: relative; overflow: hidden; }
 .app-brand { display: flex; align-items: center; gap: 0.5rem; }
 .brand-icon { font-size: 1.4rem; background: linear-gradient(135deg, #5c3bff, #ff3b8c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .brand-name { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.1rem; color: #fff; }
-.sidebar-close { display: none; background: rgba(255,255,255,0.06); border: none; border-radius: 8px; color: rgba(255,255,255,0.6); cursor: pointer; font-size: 1rem; width: 32px; height: 32px; align-items: center; justify-content: center; }
-.sidebar-close:focus-visible { outline: 3px solid #7c6fff; outline-offset: 2px; }
-.sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; list-style: none; padding: 0; margin: 0; }
-.nav-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 10px; color: rgba(255,255,255,0.55); background: none; border: none; cursor: pointer; font-size: 0.9rem; font-weight: 500; transition: all 0.15s; text-decoration: none; font-family: inherit; width: 100%; text-align: left; min-height: 48px; }
-.nav-item:hover, .nav-item.active, .router-link-active.nav-item { background: rgba(92,59,255,0.15); color: #a78bfa; }
-.nav-item:focus-visible { outline: 3px solid #7c6fff; outline-offset: -2px; border-radius: 10px; }
-.nav-icon { font-size: 1.1rem; flex-shrink: 0; display: flex; align-items: center; }
-.logout-btn { color: rgba(255,100,100,0.65); }
-.logout-btn:hover { background: rgba(255,59,140,0.1); color: #ff3b8c; }
-.my-card { display: flex; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.04); border-radius: 12px; padding: 0.875rem; margin-top: 1rem; border: 1px solid rgba(255,255,255,0.05); }
-.my-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #5c3bff, #ff3b8c); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; color: #fff; cursor: pointer; position: relative; flex-shrink: 0; overflow: hidden; border: none; }
-.my-avatar:focus-visible { outline: 3px solid #7c6fff; outline-offset: 3px; }
-.my-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.online-dot { position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #34d399; border-radius: 50%; border: 2px solid #0a0c18; }
-.my-info { display: flex; flex-direction: column; min-width: 0; }
-.my-info strong { font-size: 0.9rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.my-username { font-size: 0.75rem; color: rgba(255,255,255,0.38); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.main-area { width: 100%; height: 100%; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 
 .dashboard-header {
   padding: 1.5rem;
@@ -384,6 +303,106 @@ async function handleLogout() {
   margin-bottom: 4px;
 }
 
+.menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0.5rem 0;
+}
+
+.logout-item {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  color: #ff6b8a !important;
+}
+
+.logout-item:hover {
+  background: rgba(255, 59, 138, 0.1) !important;
+}
+
+/* Modal / Confirmation Dialog */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1.5rem;
+}
+
+.confirm-dialog {
+  background: #1a1c2e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 2rem;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 1rem;
+  font-family: 'Syne', sans-serif;
+  font-size: 1.5rem;
+}
+
+.confirm-dialog p {
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 2rem;
+}
+
+.form-actions-modal {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.btn-cancel-modal {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 0.75rem 1.5rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel-modal:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-logout-modal {
+  background: #ff3b8c;
+  border: none;
+  color: #fff;
+  padding: 0.75rem 1.5rem;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-logout-modal:hover {
+  background: #ff1f7a;
+  transform: translateY(-1px);
+}
+
+.modal-fade-enter-active, .modal-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.modal-fade-enter-from, .modal-fade-leave-to {
+  opacity: 0;
+}
+
 .topbar { display: none; }
 .search-bar-wrap { padding: 1rem 1.5rem 0.5rem; display: block; }
 .search-input { width: 100%; background: rgba(255,255,255,0.05); border: 1.5px solid rgba(255,255,255,0.09); border-radius: 12px; padding: 0.75rem 1rem; color: #e2e8f0; font-size: 0.9rem; font-family: inherit; transition: all 0.2s; min-height: 48px; }
@@ -420,10 +439,4 @@ async function handleLogout() {
 .return-call-btn:hover { background: rgba(255,255,255,0.3); }
 .return-call-btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-@media (max-width: 768px) {
-  .sidebar { position: fixed; left: -100%; top: 0; bottom: 0; z-index: 200; width: 280px; transition: left 0.3s ease; padding-top: 1rem; }
-  .sidebar.open { left: 0; }
-  .sidebar-close { display: flex; }
-  .menu-btn { display: flex; }
-}
 </style>
