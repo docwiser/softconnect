@@ -141,6 +141,10 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
             Block User
           </button>
+          <button role="menuitem" @click="confirmReportChat" class="menu-danger">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Report Chat
+          </button>
         </div>
       </Transition>
     </header>
@@ -277,6 +281,15 @@
               title="Delete"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            </button>
+            <button
+              v-if="msg.senderId !== myUid"
+              class="msg-action-btn danger"
+              @click="confirmReportMessage(msg)"
+              aria-label="Report this message"
+              title="Report"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             </button>
           </div>
         </article>
@@ -535,6 +548,55 @@
       </div>
     </Transition>
 
+    <!-- Report chat confirm dialog -->
+    <Transition name="modal-fade">
+      <div
+        v-if="showReportChatModal"
+        class="modal-overlay"
+        @click.self="showReportChatModal = false"
+        role="presentation"
+      >
+        <dialog
+          open
+          class="modal"
+          aria-label="Report chat"
+          @keydown.escape="showReportChatModal = false"
+        >
+          <h2>Report this chat?</h2>
+          <p>This will send a copy of this chat's metadata and a summary to the administrators for review. Use this for reporting harassment or policy violations.</p>
+          <div class="modal-actions">
+            <button class="modal-cancel" @click="showReportChatModal = false">Cancel</button>
+            <button class="modal-confirm danger" @click="doReportChat">Send Report</button>
+          </div>
+        </dialog>
+      </div>
+    </Transition>
+
+    <!-- Report message confirm dialog -->
+    <Transition name="modal-fade">
+      <div
+        v-if="reportMsgTarget"
+        class="modal-overlay"
+        @click.self="reportMsgTarget = null"
+        role="presentation"
+      >
+        <dialog
+          open
+          class="modal"
+          aria-label="Report message"
+          @keydown.escape="reportMsgTarget = null"
+        >
+          <h2>Report this message?</h2>
+          <p>Report the following content to administrators:</p>
+          <blockquote class="report-preview">"{{ reportMsgTarget.content }}"</blockquote>
+          <div class="modal-actions">
+            <button class="modal-cancel" @click="reportMsgTarget = null">Cancel</button>
+            <button class="modal-confirm danger" @click="doReportMessage">Send Report</button>
+          </div>
+        </dialog>
+      </div>
+    </Transition>
+
     <!-- Live region for announcements -->
     <div aria-live="assertive" aria-atomic="true" class="sr-only" role="alert">{{ announcement }}</div>
   </div>
@@ -555,7 +617,8 @@ import {
   blockUser,
   unblockUser,
   getUserProfile,
-  deleteChat
+  deleteChat,
+  reportContent
 } from '../services/firebase'
 import type { Message, UserProfile } from '../services/firebase'
 import { doc, getDoc } from 'firebase/firestore'
@@ -574,6 +637,8 @@ const showBlockModal = ref(false)
 const showUnblockModal = ref(false)
 const showDeleteChatModal = ref(false)
 const showClearModal = ref(false)
+const showReportChatModal = ref(false)
+const reportMsgTarget = ref<(Message & { id: string }) | null>(null)
 const showProfileDialog = ref(false)
 const peerOnline = ref(false)
 const peerLastSeen = ref<Date | null>(null)
@@ -925,6 +990,53 @@ async function doDeleteChat() {
   } catch (e) {
     appStore.addNotification('Could not delete chat', 'error')
     showDeleteChatModal.value = false
+  }
+}
+
+function confirmReportChat() {
+  showMenu.value = false
+  showReportChatModal.value = true
+}
+
+async function doReportChat() {
+  try {
+    const reporterName = appStore.currentUserProfile?.displayName || 'Unknown'
+    await reportContent(
+      myUid.value,
+      reporterName,
+      peerId.value,
+      peerName.value,
+      chatId.value,
+      'Full Chat Report'
+    )
+    showReportChatModal.value = false
+    appStore.addNotification('Chat reported to admins', 'success')
+  } catch {
+    appStore.addNotification('Could not send report', 'error')
+  }
+}
+
+function confirmReportMessage(msg: Message & { id: string }) {
+  reportMsgTarget.value = msg
+}
+
+async function doReportMessage() {
+  if (!reportMsgTarget.value) return
+  try {
+    const reporterName = appStore.currentUserProfile?.displayName || 'Unknown'
+    await reportContent(
+      myUid.value,
+      reporterName,
+      peerId.value,
+      peerName.value,
+      chatId.value,
+      reportMsgTarget.value.content,
+      reportMsgTarget.value.id
+    )
+    reportMsgTarget.value = null
+    appStore.addNotification('Message reported to admins', 'success')
+  } catch {
+    appStore.addNotification('Could not send report', 'error')
   }
 }
 
@@ -1295,6 +1407,7 @@ function goBack() {
 .msg-action-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
 .msg-action-btn:focus-visible { outline: 3px solid #7c6fff; outline-offset: 1px; opacity: 1; }
 .msg-action-btn.danger:hover { background: rgba(255,59,140,0.2); color: #ff6b8a; }
+.msg-action-btn.warning:hover { background: rgba(251,191,36,0.2); color: #fbbf24; }
 
 /* Typing indicator */
 .typing-indicator {
@@ -1575,6 +1688,25 @@ function goBack() {
   cursor: pointer; font-family: inherit; font-size: 0.9rem; font-weight: 600; min-height: 44px;
 }
 .modal-confirm:focus-visible { outline: 3px solid #ff9bb5; outline-offset: 2px; }
+
+.modal-confirm.danger {
+  background: #ef4444;
+}
+.modal-confirm.danger:hover {
+  background: #dc2626;
+}
+
+.report-preview {
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid #ef4444;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+  font-style: italic;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+  border-radius: 4px;
+  word-break: break-word;
+}
 
 /* ── SR only ─────────────────────────────────────────────────────────────────── */
 .sr-only {

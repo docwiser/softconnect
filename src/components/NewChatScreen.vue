@@ -25,7 +25,11 @@
           autocomplete="off"
           autocorrect="off"
           spellcheck="false"
+          list="user-suggestions"
         />
+        <datalist id="user-suggestions">
+          <option v-for="user in results" :key="user.uid" :value="user.username">{{ user.displayName }}</option>
+        </datalist>
         <span id="search-hint" class="sr-only">Type at least 2 characters to search</span>
         <span v-if="isSearching" class="search-loader" aria-hidden="true"></span>
       </div>

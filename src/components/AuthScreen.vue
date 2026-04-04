@@ -310,7 +310,10 @@
             </button>
 
             <p class="terms-text">
-              By creating an account you agree to our privacy-first policy. We collect no data beyond what you share.
+              By creating an account you agree to our 
+              <RouterLink to="/privacy-policy" class="policy-link">Privacy Policy</RouterLink>, 
+              <RouterLink to="/terms-of-use" class="policy-link">Terms of Use</RouterLink>, and 
+              <RouterLink to="/ugc-disclosure" class="policy-link">UGC Disclosure</RouterLink>.
             </p>
           </form>
         </section>
@@ -857,6 +860,16 @@ function friendlyError(code: string): string {
   text-align: center;
   line-height: 1.5;
   margin: 0;
+}
+
+.policy-link {
+  color: #7c6fff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.policy-link:hover {
+  color: #a78bfa;
 }
 
 .sr-only {

@@ -24,26 +24,38 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(uid)).data.blockable == true;
     }
 
+    function isAdmin() {
+      return isAuth() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
     // ── Users collection: users/{uid} ────────────────────────────────────────
     match /users/{uid} {
       // Anyone authenticated can read public profiles
-      // (profile visibility is enforced at app level for privacy)
       allow read: if isAuth();
 
-      // Only the user can create/update their own document
+      // Only the user can create/update their own document, or admin can update
       allow create: if isAuth() && isOwner(uid)
-        && request.resource.data.keys().hasAll(['uid','username','displayName','email','blockable','blockedUsers','settings'])
         && request.resource.data.uid == uid
-        // Protect blockable field — cannot set yourself as non-blockable on create
-        && request.resource.data.blockable == true;
+        && request.resource.data.blockable == true
+        && (!('role' in request.resource.data) || request.resource.data.role == 'user');
 
-      allow update: if isAuth() && isOwner(uid)
-        // Cannot change blockable field (only admin can set blockable:false)
-        && request.resource.data.blockable == resource.data.blockable
-        // Cannot change uid
-        && request.resource.data.uid == resource.data.uid;
+      allow update: if isAuth() && (
+        (isOwner(uid) 
+          && request.resource.data.blockable == resource.data.blockable
+          && request.resource.data.uid == resource.data.uid
+          && (request.resource.data.role == resource.data.role || (!('role' in resource.data) && request.resource.data.role == 'user'))
+        )
+        || isAdmin()
+      );
 
-      allow delete: if false; // No deletions via client
+      allow delete: if isAdmin();
+    }
+
+    // ── Reports: reports/{reportId} ──────────────────────────────────────────
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAuth() && request.resource.data.reporterId == request.auth.uid;
+      allow update, delete: if isAdmin();
     }
 
     // ── PeerJS ID lookup: peerIds/{uid} ──────────────────────────────────────

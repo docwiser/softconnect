@@ -83,6 +83,21 @@ export interface UserProfile {
   blockable: boolean      // if false, no one can block this user
   blockedUsers: string[]  // UIDs this user has blocked
   settings: UserSettings
+  role?: 'admin' | 'user'
+}
+
+export interface Report {
+  id: string
+  reporterId: string
+  reporterName: string
+  targetId: string      // The user being reported (peer)
+  targetName: string
+  chatId: string
+  messageId?: string    // If reporting a specific message
+  content: string       // The message content or "Full Chat Report"
+  reason: string        // Optional reason from reporter
+  timestamp: Timestamp
+  status: 'pending' | 'resolved' | 'dismissed'
 }
 
 export interface UserSettings {
@@ -173,7 +188,8 @@ export async function registerUser(
       showLastSeen: true,
       showPhone: false,
       notificationsEnabled: true
-    }
+    },
+    role: 'user'
   }
   await setDoc(doc(db, 'users', cred.user.uid), profile)
   return cred.user
@@ -220,7 +236,8 @@ export async function loginWithGoogle(): Promise<FirebaseUser> {
         showLastSeen: true,
         showPhone: false,
         notificationsEnabled: true
-      }
+      },
+      role: 'user'
     }
     await setDoc(userRef, profile)
   } else {
@@ -398,6 +415,42 @@ export async function deleteChat(chatId: string): Promise<void> {
   messagesSnap.forEach(d => batch.delete(d.ref))
   batch.delete(doc(db, 'chats', chatId))
   await batch.commit()
+}
+
+// ─── Reporting Functions ─────────────────────────────────────────────────────
+export async function reportContent(
+  reporterId: string,
+  reporterName: string,
+  targetId: string,
+  targetName: string,
+  chatId: string,
+  content: string,
+  messageId?: string,
+  reason = 'Policy violation'
+): Promise<void> {
+  const report: Omit<Report, 'id'> = {
+    reporterId,
+    reporterName,
+    targetId,
+    targetName,
+    chatId,
+    messageId,
+    content,
+    reason,
+    timestamp: Timestamp.now(),
+    status: 'pending'
+  }
+  await addDoc(collection(db, 'reports'), report)
+}
+
+export async function getReports(): Promise<Report[]> {
+  const q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'))
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Report))
+}
+
+export async function resolveReport(reportId: string, status: 'resolved' | 'dismissed'): Promise<void> {
+  await updateDoc(doc(db, 'reports', reportId), { status })
 }
 
 // ─── Call History Functions ───────────────────────────────────────────────────

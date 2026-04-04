@@ -89,6 +89,42 @@ const router = createRouter({
       name: 'join',
       component: () => import('../components/PreJoinScreen.vue'),
       meta: { title: 'Join Meeting — Soft Connect' }
+    },
+    {
+      path: '/privacy-policy',
+      name: 'privacy-policy',
+      component: () => import('../components/PrivacyPolicy.vue'),
+      meta: { title: 'Privacy Policy — Soft Connect' }
+    },
+    {
+      path: '/terms-of-use',
+      name: 'terms-of-use',
+      component: () => import('../components/TermsOfUse.vue'),
+      meta: { title: 'Terms of Use — Soft Connect' }
+    },
+    {
+      path: '/ugc-disclosure',
+      name: 'ugc-disclosure',
+      component: () => import('../components/UGCDisclosure.vue'),
+      meta: { title: 'UGC Disclosure — Soft Connect' }
+    },
+    {
+      path: '/help-support',
+      name: 'help-support',
+      component: () => import('../components/HelpSupport.vue'),
+      meta: { title: 'Help & Support — Soft Connect' }
+    },
+    {
+      path: '/about',
+      name: 'about',
+      component: () => import('../components/About.vue'),
+      meta: { title: 'About — Soft Connect' }
+    },
+    {
+      path: '/reports',
+      name: 'reports',
+      component: () => import('../components/ReportsScreen.vue'),
+      meta: { requiresAuth: true, title: 'User Reports — Admin' }
     }
   ]
 })
