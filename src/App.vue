@@ -129,6 +129,7 @@ onMounted(async () => {
       router.push('/dashboard')
     }
   } catch (e: any) {
+    console.error('Google redirect result error:', e)
     appStore.addNotification('Google sign-in failed', 'error')
   }
 

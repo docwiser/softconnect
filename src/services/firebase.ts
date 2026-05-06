@@ -204,10 +204,6 @@ export async function registerUser(
 
 export async function loginUser(email: string, password: string): Promise<FirebaseUser> {
   const cred = await signInWithEmailAndPassword(auth, email, password)
-  await updateDoc(doc(db, 'users', cred.user.uid), {
-    isOnline: true,
-    lastSeen: serverTimestamp()
-  })
   return cred.user
 }
 
@@ -253,8 +249,6 @@ export async function handleRedirectResult(): Promise<FirebaseUser | null> {
       role: 'user'
     }
     await setDoc(userRef, profile)
-  } else {
-    await updateDoc(userRef, { isOnline: true, lastSeen: serverTimestamp() })
   }
   return result.user
 }
@@ -309,11 +303,41 @@ export async function completeMagicLinkSignIn(): Promise<FirebaseUser | null> {
       const result = await signInWithEmailLink(auth, email, window.location.href)
       window.localStorage.removeItem('emailForSignIn')
       
-      // Update online status
-      await updateDoc(doc(db, 'users', result.user.uid), {
-        isOnline: true,
-        lastSeen: serverTimestamp()
-      })
+      const userRef = doc(db, 'users', result.user.uid)
+      const snap = await getDoc(userRef)
+
+      if (!snap.exists()) {
+        // New Magic Link user — create profile
+        const baseUsername = (result.user.displayName || result.user.email || 'user')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '')
+          .slice(0, 20)
+        const username = `${baseUsername}${Math.floor(Math.random() * 999)}`
+
+        const profile: UserProfile = {
+          uid: result.user.uid,
+          username,
+          displayName: result.user.displayName || 'User',
+          email: result.user.email || email,
+          phone: result.user.phoneNumber || null,
+          photoURL: result.user.photoURL || null,
+          bio: '',
+          createdAt: Timestamp.now(),
+          lastSeen: Timestamp.now(),
+          isOnline: true,
+          blockable: true,
+          blockedUsers: [],
+          settings: {
+            profileVisible: true,
+            readReceipts: true,
+            showLastSeen: true,
+            showPhone: false,
+            notificationsEnabled: true
+          },
+          role: 'user'
+        }
+        await setDoc(userRef, profile)
+      }
       
       return result.user
     }

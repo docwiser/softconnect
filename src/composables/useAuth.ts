@@ -1,7 +1,7 @@
 // src/composables/useAuth.ts
 import { onUnmounted } from 'vue'
 import { onAuthStateChanged } from 'firebase/auth'
-import { auth, listenToUserProfile, listenToUserChats, updateUserProfile, Timestamp } from '../services/firebase'
+import { auth, listenToUserProfile, listenToUserChats, updateUserProfile, getUserProfile, Timestamp } from '../services/firebase'
 import { useAppStore } from '../stores/app'
 import { usePeerStore } from '../stores/peer'
 
@@ -20,17 +20,28 @@ export function useAuth() {
 
     authUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Set user online in Firestore
+        // Set user online in Firestore only if profile exists
+        // (handleRedirectResult or registerUser will set it for new users)
         try {
-          await updateUserProfile(firebaseUser.uid, {
-            isOnline: true,
-            lastSeen: Timestamp.now()
-          })
-        } catch (e) { console.warn('Could not set online status') }
+          const profile = await getUserProfile(firebaseUser.uid)
+          if (profile) {
+            await updateUserProfile(firebaseUser.uid, {
+              isOnline: true,
+              lastSeen: Timestamp.now()
+            })
+          }
+        } catch (e) {
+          // Silent fail for online status, not critical
+        }
 
         // Listen to profile changes in real-time
         unsubscribeProfile = listenToUserProfile(firebaseUser.uid, (profile) => {
-          if (profile) appStore.setUserProfile(profile)
+          if (profile) {
+            appStore.setUserProfile(profile)
+          } else {
+            // Document doesn't exist yet (e.g. during Google sign-in creation)
+            // Don't set profile to null yet to avoid flickering isAuthenticated state
+          }
         })
 
         // Listen to chats in real-time
