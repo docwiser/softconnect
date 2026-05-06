@@ -1,11 +1,6 @@
 <template>
   <div class="call-history-screen" id="main-content" tabindex="-1">
-    <header class="screen-header" role="banner">
-      <button class="back-btn" @click="router.back()" aria-label="Go back to previous page">
-        <span aria-hidden="true">←</span>
-      </button>
-      <h1>Call History</h1>
-    </header>
+    <AppHeader />
 
     <main class="call-main" aria-label="Call history">
       <div v-if="isLoading" class="loading-state" role="status" aria-label="Loading call history">
@@ -94,6 +89,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { usePeerStore } from '../stores/peer'
+import AppHeader from './AppHeader.vue'
 import { auth, db } from '../services/firebase'
 import type { CallRecord } from '../services/firebase'
 import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore'

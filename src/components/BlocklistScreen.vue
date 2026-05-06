@@ -1,13 +1,6 @@
 <template>
   <div class="blocklist-screen" id="main-content" tabindex="-1">
-    <header class="header">
-      <button class="back-btn" @click="router.push('/dashboard')" aria-label="Back to dashboard">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M19 12H5M12 5l-7 7 7 7"/>
-        </svg>
-      </button>
-      <h1>Blocklist</h1>
-    </header>
+    <SubPageHeader title="Blocklist" />
 
     <main class="content">
       <div v-if="loading" class="loading-state" role="status">
@@ -76,6 +69,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
+import SubPageHeader from './SubPageHeader.vue'
 import { auth, getUserProfile, unblockUser } from '../services/firebase'
 import type { UserProfile } from '../services/firebase'
 

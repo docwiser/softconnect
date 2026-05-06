@@ -1,15 +1,13 @@
 <template>
   <div class="meetings-screen" id="main-content" tabindex="-1">
-    <header class="screen-header" role="banner">
-      <button class="back-btn" @click="router.push('/dashboard')" aria-label="Back to dashboard">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-      </button>
-      <h1>Meetings</h1>
-      <button class="new-meeting-btn" @click="() => openCreateDialog(false)" aria-label="Create a new meeting">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        New Meeting
-      </button>
-    </header>
+    <AppHeader>
+      <template #actions>
+        <button class="action-btn" @click="() => openCreateDialog(false)" aria-label="Create a new meeting">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true" style="margin-right: 4px; vertical-align: middle;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New Meeting
+        </button>
+      </template>
+    </AppHeader>
 
     <main class="meetings-main" aria-label="Meetings list">
       <!-- Quick actions -->
@@ -258,36 +256,7 @@
     </Transition>
 
     <!-- Join with code dialog -->
-    <Transition name="modal-fade">
-      <div v-if="showJoinDialog" class="modal-overlay" @click.self="showJoinDialog = false" role="presentation">
-        <dialog open class="join-dialog" aria-label="Join a meeting" @keydown.escape="showJoinDialog = false">
-          <div class="dialog-header">
-            <h2>Join Meeting</h2>
-            <button class="dialog-close" @click="showJoinDialog = false" aria-label="Close" ref="joinDialogCloseRef">✕</button>
-          </div>
-          <div class="join-form">
-            <div class="form-field">
-              <label for="join-code">Meeting Code or Link</label>
-              <input
-                id="join-code"
-                v-model="joinCode"
-                type="text"
-                placeholder="abc-defg-hij or paste link"
-                autocomplete="off"
-                ref="joinCodeInputRef"
-              />
-            </div>
-            <div v-if="joinError" class="join-error" role="alert">{{ joinError }}</div>
-            <div class="form-actions">
-              <button type="button" class="btn-cancel" @click="showJoinDialog = false">Cancel</button>
-              <button class="btn-create" @click="handleJoin" :disabled="!joinCode.trim() || isJoining" :aria-busy="isJoining">
-                {{ isJoining ? 'Finding…' : 'Continue' }}
-              </button>
-            </div>
-          </div>
-        </dialog>
-      </div>
-    </Transition>
+    <JoinMeetingDialog :show="showJoinDialog" @close="showJoinDialog = false" />
 
     <!-- Delete confirm -->
     <Transition name="modal-fade">
@@ -311,6 +280,8 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
+import JoinMeetingDialog from './JoinMeetingDialog.vue'
+import AppHeader from './AppHeader.vue'
 import {
   createMeeting,
   getMeetingByCode,
@@ -330,15 +301,10 @@ const announcement = ref('')
 const showCreateDialog = ref(false)
 const showJoinDialog = ref(false)
 const isCreating = ref(false)
-const isJoining = ref(false)
 const isScheduling = ref(false)
-const joinCode = ref('')
-const joinError = ref('')
 const deleteTarget = ref<Meeting | null>(null)
 
 const createDialogCloseRef = ref<HTMLButtonElement>()
-const joinDialogCloseRef = ref<HTMLButtonElement>()
-const joinCodeInputRef = ref<HTMLInputElement>()
 const deleteCancelRef = ref<HTMLButtonElement>()
 
 const formErrors = ref<Record<string, string>>({})
@@ -392,9 +358,6 @@ onUnmounted(() => { unsubMeetings?.() })
 // Auto-focus dialog buttons
 watch(showCreateDialog, async (open) => {
   if (open) { await nextTick(); createDialogCloseRef.value?.focus() }
-})
-watch(showJoinDialog, async (open) => {
-  if (open) { await nextTick(); joinCodeInputRef.value?.focus() }
 })
 watch(deleteTarget, async (t) => {
   if (t) { await nextTick(); deleteCancelRef.value?.focus() }
@@ -452,34 +415,6 @@ async function handleCreate() {
     appStore.addNotification(e.message || 'Could not create meeting', 'error')
   } finally {
     isCreating.value = false
-  }
-}
-
-async function handleJoin() {
-  joinError.value = ''
-  let code = joinCode.value.trim()
-  // Handle full URLs
-  if (code.includes('/join/')) {
-    code = code.split('/join/').pop() || code
-  }
-  if (!code) return
-  isJoining.value = true
-  try {
-    const meeting = await getMeetingByCode(code)
-    if (!meeting) {
-      joinError.value = 'Meeting not found. Check the code and try again.'
-      return
-    }
-    if (meeting.status === 'ended') {
-      joinError.value = 'This meeting has ended.'
-      return
-    }
-    showJoinDialog.value = false
-    router.push(`/meeting/prejoin/${code}`)
-  } catch {
-    joinError.value = 'Could not find meeting. Try again.'
-  } finally {
-    isJoining.value = false
   }
 }
 

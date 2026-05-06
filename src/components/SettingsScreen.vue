@@ -1,21 +1,19 @@
 <template>
   <div class="settings-screen" id="main-content" tabindex="-1">
-    <header class="screen-header" role="banner">
-      <button class="back-btn" @click="router.back()" aria-label="Go back">
-        <span aria-hidden="true">←</span>
-      </button>
-      <h1>Settings</h1>
-      <button
-        v-if="isDirty"
-        class="save-btn"
-        @click="saveSettings"
-        :disabled="isSaving"
-        :aria-busy="isSaving"
-        :aria-label="isSaving ? 'Saving settings…' : 'Save settings'"
-      >
-        {{ isSaving ? 'Saving…' : 'Save' }}
-      </button>
-    </header>
+    <SubPageHeader title="Settings">
+      <template #actions>
+        <button
+          v-if="isDirty"
+          class="save-btn"
+          @click="saveSettings"
+          :disabled="isSaving"
+          :aria-busy="isSaving"
+          :aria-label="isSaving ? 'Saving settings…' : 'Save settings'"
+        >
+          {{ isSaving ? 'Saving…' : 'Save' }}
+        </button>
+      </template>
+    </SubPageHeader>
 
     <main class="settings-body" aria-label="Settings">
 
@@ -240,6 +238,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
+import SubPageHeader from './SubPageHeader.vue'
 import {
   auth,
   updateUserProfile,

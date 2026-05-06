@@ -1,11 +1,6 @@
 <template>
   <div class="policy-page" id="main-content">
-    <header class="policy-header">
-      <RouterLink to="/auth" class="back-btn" aria-label="Back to sign in">
-        <span aria-hidden="true">←</span> Back
-      </RouterLink>
-      <h1 class="policy-title">User Generated Content Disclosure</h1>
-    </header>
+    <SubPageHeader title="UGC Disclosure" />
 
     <main class="policy-content">
       <section>
@@ -34,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from 'vue-router'
+import SubPageHeader from './SubPageHeader.vue'
 </script>
 
 <style scoped>

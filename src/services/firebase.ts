@@ -49,7 +49,7 @@ const firebaseConfig = {
 
   apiKey: "AIzaSyBkZNyR4vH0bcPrh3xqXvrJen_bIFU4Da8",
 
-  authDomain: "softconnectdev.firebaseapp.com",
+  authDomain: "softconnect.susantswain.com",
 
   projectId: "softconnectdev",
 

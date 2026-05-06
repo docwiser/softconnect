@@ -1,11 +1,6 @@
 <template>
   <div class="new-chat-screen" id="main-content" tabindex="-1">
-    <header class="screen-header" role="banner">
-      <button class="back-btn" @click="router.back()" aria-label="Go back to previous page">
-        <span aria-hidden="true">←</span>
-      </button>
-      <h1>New Conversation</h1>
-    </header>
+    <SubPageHeader title="New Conversation" />
 
     <search class="search-section" aria-label="Find users">
       <label for="user-search" class="sr-only">Search users by username</label>
@@ -180,6 +175,7 @@ import { ref, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { usePeerStore } from '../stores/peer'
+import SubPageHeader from './SubPageHeader.vue'
 import {
   searchUsers,
   getOrCreateChat,

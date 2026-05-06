@@ -1,17 +1,15 @@
 <template>
   <div class="profile-screen" id="main-content" tabindex="-1">
-    <header class="screen-header" role="banner">
-      <button class="back-btn" @click="router.back()" aria-label="Go back to previous page">
-        <span aria-hidden="true">←</span>
-      </button>
-      <h1>{{ isOwnProfile ? 'My Profile' : 'Profile' }}</h1>
-      <RouterLink
-        v-if="isOwnProfile"
-        to="/settings"
-        class="edit-btn"
-        aria-label="Edit your profile in settings"
-      >Edit</RouterLink>
-    </header>
+    <SubPageHeader :title="isOwnProfile ? 'My Profile' : 'Profile'">
+      <template #actions>
+        <button
+          v-if="isOwnProfile"
+          class="edit-btn"
+          @click="router.push('/settings')"
+          aria-label="Edit your profile in settings"
+        >Edit</button>
+      </template>
+    </SubPageHeader>
 
     <main class="profile-main" aria-label="Profile content">
       <div v-if="isLoading" class="loading-state" role="status" aria-label="Loading profile">
@@ -135,9 +133,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { usePeerStore } from '../stores/peer'
+import SubPageHeader from './SubPageHeader.vue'
 import {
   auth, db,
   getUserProfile,

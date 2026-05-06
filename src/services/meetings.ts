@@ -201,7 +201,7 @@ export async function updateMeetingSettings(
   meetingId: string,
   settings: Partial<MeetingSettings>
 ): Promise<void> {
-  const updates: Record<string, unknown> = {}
+  const updates: Record<string, any> = {}
   for (const [key, val] of Object.entries(settings)) {
     updates[`settings.${key}`] = val
   }
@@ -373,7 +373,7 @@ export async function updateParticipantState(
     'isScreenSharing' | 'isSpeaking' | 'status'
   >>
 ): Promise<void> {
-  const firestoreUpdates: Record<string, unknown> = {}
+  const firestoreUpdates: Record<string, any> = {}
   for (const [key, val] of Object.entries(updates)) {
     firestoreUpdates[`participants.${uid}.${key}`] = val
   }
@@ -444,7 +444,7 @@ export async function updateParticipantProfile(
   uid: string,
   updates: Partial<Pick<MeetingParticipant, 'displayName' | 'photoURL'>>
 ): Promise<void> {
-  const firestoreUpdates: Record<string, unknown> = {}
+  const firestoreUpdates: Record<string, any> = {}
   for (const [key, val] of Object.entries(updates)) {
     firestoreUpdates[`participants.${uid}.${key}`] = val
   }
