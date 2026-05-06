@@ -347,10 +347,15 @@ export async function completeMagicLinkSignIn(): Promise<FirebaseUser | null> {
 
 export async function logoutUser(): Promise<void> {
   if (auth.currentUser) {
-    await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-      isOnline: false,
-      lastSeen: serverTimestamp()
-    })
+    try {
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        isOnline: false,
+        lastSeen: serverTimestamp()
+      })
+    } catch (error) {
+      console.error('Error updating user status during logout:', error)
+      // We continue to sign out even if the status update fails
+    }
   }
   await signOut(auth)
 }
