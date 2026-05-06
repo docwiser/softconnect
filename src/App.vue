@@ -74,8 +74,11 @@ import { computed, onMounted, watch } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { useAppStore } from './stores/app'
 import { useAuth } from './composables/useAuth'
+import { handleRedirectResult, completeMagicLinkSignIn } from './services/firebase'
+import { useRouter } from 'vue-router'
 
 const route = useRoute()
+const router = useRouter()
 const appStore = useAppStore()
 const { init } = useAuth()
 
@@ -115,8 +118,30 @@ function toastIcon(type: string): string {
   return icons[type] || 'ℹ'
 }
 
-onMounted(() => {
+onMounted(async () => {
   init()
+  
+  // Handle Google Redirects
+  try {
+    const user = await handleRedirectResult()
+    if (user) {
+      appStore.addNotification('Signed in with Google!', 'success')
+      router.push('/dashboard')
+    }
+  } catch (e: any) {
+    appStore.addNotification('Google sign-in failed', 'error')
+  }
+
+  // Handle Magic Link Redirects
+  try {
+    const user = await completeMagicLinkSignIn()
+    if (user) {
+      appStore.addNotification('Signed in via Magic Link!', 'success')
+      router.push('/dashboard')
+    }
+  } catch (e: any) {
+    appStore.addNotification('Magic link sign-in failed', 'error')
+  }
 })
 </script>
 

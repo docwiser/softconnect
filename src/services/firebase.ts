@@ -11,6 +11,12 @@ import {
   sendPasswordResetEmail,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  fetchSignInMethodsForEmail,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
   type User as FirebaseUser
 } from 'firebase/auth'
 import {
@@ -154,7 +160,8 @@ export async function registerUser(
   email: string,
   password: string,
   displayName: string,
-  username: string
+  username: string,
+  phone: string | null = null
 ): Promise<FirebaseUser> {
   // Check username uniqueness
   const usernameQuery = query(
@@ -174,7 +181,7 @@ export async function registerUser(
     username: username.toLowerCase(),
     displayName,
     email,
-    phone: null,
+    phone,
     photoURL: null,
     bio: '',
     createdAt: Timestamp.now(),
@@ -204,26 +211,32 @@ export async function loginUser(email: string, password: string): Promise<Fireba
   return cred.user
 }
 
-export async function loginWithGoogle(): Promise<FirebaseUser> {
-  const cred = await signInWithPopup(auth, googleProvider)
-  const userRef = doc(db, 'users', cred.user.uid)
+export async function loginWithGoogle(): Promise<void> {
+  await signInWithRedirect(auth, googleProvider)
+}
+
+export async function handleRedirectResult(): Promise<FirebaseUser | null> {
+  const result = await getRedirectResult(auth)
+  if (!result) return null
+
+  const userRef = doc(db, 'users', result.user.uid)
   const snap = await getDoc(userRef)
 
   if (!snap.exists()) {
     // New Google user — create profile
-    const baseUsername = (cred.user.displayName || cred.user.email || 'user')
+    const baseUsername = (result.user.displayName || result.user.email || 'user')
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '')
       .slice(0, 20)
     const username = `${baseUsername}${Math.floor(Math.random() * 999)}`
 
     const profile: UserProfile = {
-      uid: cred.user.uid,
+      uid: result.user.uid,
       username,
-      displayName: cred.user.displayName || 'User',
-      email: cred.user.email || '',
-      phone: cred.user.phoneNumber || null,
-      photoURL: cred.user.photoURL || null,
+      displayName: result.user.displayName || 'User',
+      email: result.user.email || '',
+      phone: result.user.phoneNumber || null,
+      photoURL: result.user.photoURL || null,
       bio: '',
       createdAt: Timestamp.now(),
       lastSeen: Timestamp.now(),
@@ -243,7 +256,69 @@ export async function loginWithGoogle(): Promise<FirebaseUser> {
   } else {
     await updateDoc(userRef, { isOnline: true, lastSeen: serverTimestamp() })
   }
-  return cred.user
+  return result.user
+}
+
+export async function checkEmailExists(email: string): Promise<boolean> {
+  try {
+    const methods = await fetchSignInMethodsForEmail(auth, email)
+    return methods.length > 0
+  } catch (e: any) {
+    // Fallback to Firestore check if Auth enumeration is protected
+    const q = query(collection(db, 'users'), where('email', '==', email))
+    const snap = await getDocs(q)
+    return !snap.empty
+  }
+}
+
+export async function getUserByPhone(phone: string): Promise<UserProfile | null> {
+  // Normalize phone for searching if needed, but the requirement says "not strict =="
+  // Firestore doesn't support fuzzy matching well without external tools, 
+  // but we can try to search for the string as provided.
+  const q = query(collection(db, 'users'), where('phone', '==', phone))
+  const snap = await getDocs(q)
+  if (!snap.empty) return snap.docs[0].data() as UserProfile
+
+  // If not found, try a simple normalization (remove non-digits) and search
+  const normalized = phone.replace(/\D/g, '')
+  if (normalized && normalized !== phone) {
+    const q2 = query(collection(db, 'users'), where('phone', '==', normalized))
+    const snap2 = await getDocs(q2)
+    if (!snap2.empty) return snap2.docs[0].data() as UserProfile
+  }
+  
+  return null
+}
+
+export async function sendMagicLink(email: string): Promise<void> {
+  const actionCodeSettings = {
+    url: window.location.origin + '/auth',
+    handleCodeInApp: true,
+  }
+  await sendSignInLinkToEmail(auth, email, actionCodeSettings)
+  window.localStorage.setItem('emailForSignIn', email)
+}
+
+export async function completeMagicLinkSignIn(): Promise<FirebaseUser | null> {
+  if (isSignInWithEmailLink(auth, window.location.href)) {
+    let email = window.localStorage.getItem('emailForSignIn')
+    if (!email) {
+      email = window.prompt('Please provide your email for confirmation')
+    }
+    if (email) {
+      const result = await signInWithEmailLink(auth, email, window.location.href)
+      window.localStorage.removeItem('emailForSignIn')
+      
+      // Update online status
+      await updateDoc(doc(db, 'users', result.user.uid), {
+        isOnline: true,
+        lastSeen: serverTimestamp()
+      })
+      
+      return result.user
+    }
+  }
+  return null
 }
 
 export async function logoutUser(): Promise<void> {

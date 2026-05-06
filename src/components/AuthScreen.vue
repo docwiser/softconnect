@@ -1,5 +1,6 @@
 <template>
   <div class="auth-screen" id="main-content" tabindex="-1">
+    <!-- Constant Background -->
     <div class="auth-bg" aria-hidden="true">
       <div class="orb orb-1"></div>
       <div class="orb orb-2"></div>
@@ -7,6 +8,7 @@
     </div>
 
     <div class="auth-wrapper">
+      <!-- Constant Header -->
       <header class="auth-header">
         <div class="logo" role="img" aria-label="Soft Connect logo">
           <span class="logo-icon" aria-hidden="true">◈</span>
@@ -16,269 +18,128 @@
       </header>
 
       <main class="auth-card" aria-label="Authentication">
-        <!-- Tab Switcher -->
-        <div
-          class="tab-switcher"
-          role="tablist"
-          aria-label="Authentication options"
-        >
-          <button
-            id="tab-login"
-            role="tab"
-            :aria-selected="mode === 'login'"
-            :aria-controls="mode === 'login' ? 'panel-login' : undefined"
-            :class="['tab', { active: mode === 'login' }]"
-            @click="mode = 'login'"
-          >Sign In</button>
-          <button
-            id="tab-register"
-            role="tab"
-            :aria-selected="mode === 'register'"
-            :aria-controls="mode === 'register' ? 'panel-register' : undefined"
-            :class="['tab', { active: mode === 'register' }]"
-            @click="mode = 'register'"
-          >Create Account</button>
-        </div>
+        <div class="auth-content">
+          <h1 class="main-heading">{{ currentUI.heading }}</h1>
+          <p class="main-description">{{ currentUI.description }}</p>
 
-        <!-- Login Form -->
-        <section
-          v-if="mode === 'login'"
-          id="panel-login"
-          role="tabpanel"
-          aria-labelledby="tab-login"
-        >
-          <form @submit.prevent="handleLogin" class="auth-form" novalidate aria-label="Sign in form">
+          <!-- Account Identity Header (Visible when account found) -->
+          <div v-if="step === 'exists' || step === 'password'" class="account-identity">
+            <span class="identity-text">{{ userInput }}</span>
+            <button @click="step = 'initial'" class="change-account-btn">Change</button>
+          </div>
+
+          <!-- Step: Initial (Email/Phone Input) -->
+          <form v-if="step === 'initial'" @submit.prevent="handleNext" class="auth-form">
             <div class="field-group">
-              <label for="login-email">
-                Email address
-                <span class="required-indicator" aria-label="required">*</span>
-              </label>
+              <label for="identifier">Email or Phone Number</label>
               <input
-                id="login-email"
-                v-model="loginForm.email"
-                type="email"
-                placeholder="you@example.com"
-                autocomplete="email"
+                id="identifier"
+                v-model="userInput"
+                type="text"
+                placeholder="you@example.com or +1 555 000 0000"
                 required
-                :aria-invalid="!!errors.email"
-                :aria-describedby="errors.email ? 'login-email-error' : undefined"
+                :disabled="isLoading"
+                autofocus
               />
-              <span
-                v-if="errors.email"
-                id="login-email-error"
-                class="field-error"
-                role="alert"
-                aria-live="polite"
-              >{{ errors.email }}</span>
+              <span v-if="errors.identifier" class="field-error">{{ errors.identifier }}</span>
             </div>
+            
+            <button
+              type="submit"
+              class="submit-btn"
+              :disabled="isLoading || !userInput"
+              :aria-busy="isLoading"
+            >
+              <span>{{ isLoading ? 'Processing...' : 'Next' }}</span>
+              <span v-if="isLoading" class="spinner" aria-hidden="true"></span>
+            </button>
+          </form>
 
+          <!-- Step: Account Exists (Choose Sign-in Method) -->
+          <div v-else-if="step === 'exists'" class="method-list">
+            <button @click="step = 'password'" class="method-btn">
+              <span class="icon">🔑</span>
+              <div class="text">
+                <strong>Use your password</strong>
+                <span>Sign in using your account password</span>
+              </div>
+            </button>
+            <button @click="handleSendMagicLink" class="method-btn" :disabled="isLoading">
+              <span class="icon">📧</span>
+              <div class="text">
+                <strong>Send an email with the link to sign in</strong>
+                <span>Magic link sent to your inbox</span>
+              </div>
+              <span v-if="isLoading" class="spinner-small"></span>
+            </button>
+            <button @click="step = 'initial'" class="back-link">Back to email/phone</button>
+          </div>
+
+          <!-- Step: Password Input -->
+          <form v-else-if="step === 'password'" @submit.prevent="handlePasswordSignIn" class="auth-form">
             <div class="field-group">
-              <label for="login-password">
-                Password
-                <span class="required-indicator" aria-label="required">*</span>
-              </label>
+              <label for="password">Password</label>
               <div class="password-wrapper">
                 <input
-                  id="login-password"
-                  v-model="loginForm.password"
+                  id="password"
+                  v-model="password"
                   :type="showPassword ? 'text' : 'password'"
                   placeholder="••••••••"
-                  autocomplete="current-password"
                   required
-                  aria-describedby="login-password-hint"
+                  autofocus
                 />
                 <button
                   type="button"
                   class="eye-btn"
                   @click="showPassword = !showPassword"
                   :aria-label="showPassword ? 'Hide password' : 'Show password'"
-                  :aria-pressed="showPassword"
                 >
                   <span aria-hidden="true">{{ showPassword ? '🙈' : '👁️' }}</span>
                 </button>
               </div>
-              <span id="login-password-hint" class="sr-only">Enter your account password</span>
-              <button
-                type="button"
-                class="forgot-link"
-                @click="handleForgotPassword"
-                aria-label="Send password reset email"
-              >
+            </div>
+            
+            <div class="password-actions">
+              <button type="button" class="forgot-link" @click="handleResetPassword" :disabled="isLoading">
                 Forgot password?
               </button>
             </div>
 
-            <div
-              v-if="formError"
-              class="form-error"
-              role="alert"
-              aria-live="assertive"
-              aria-atomic="true"
-            >
-              <span aria-hidden="true">⚠</span> {{ formError }}
-            </div>
-
             <button
               type="submit"
               class="submit-btn"
-              :disabled="isLoading"
+              :disabled="isLoading || !password"
               :aria-busy="isLoading"
             >
+              <span>{{ isLoading ? 'Signing in...' : 'Sign In' }}</span>
               <span v-if="isLoading" class="spinner" aria-hidden="true"></span>
-              <span>{{ isLoading ? 'Signing in…' : 'Sign In' }}</span>
             </button>
-
-            <div class="divider" role="separator" aria-label="or continue with"></div>
-
-            <button
-              type="button"
-              class="google-btn"
-              @click="handleGoogleLogin"
-              :disabled="isLoading"
-              :aria-busy="isLoading"
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-              </svg>
-              Continue with Google
-            </button>
+            <button type="button" @click="step = 'exists'" class="back-link">Try another way</button>
           </form>
-        </section>
 
-        <!-- Register Form -->
-        <section
-          v-else
-          id="panel-register"
-          role="tabpanel"
-          aria-labelledby="tab-register"
-        >
-          <form @submit.prevent="handleRegister" class="auth-form" novalidate aria-label="Create account form">
+          <!-- Step: Join (Create Account) -->
+          <form v-else-if="step === 'create'" @submit.prevent="handleRegister" class="auth-form">
             <div class="form-row">
               <div class="field-group">
-                <label for="reg-name">
-                  Display Name
-                  <span class="required-indicator" aria-label="required">*</span>
-                </label>
-                <input
-                  id="reg-name"
-                  v-model="regForm.displayName"
-                  type="text"
-                  placeholder="Your name"
-                  autocomplete="name"
-                  required
-                  maxlength="50"
-                  :aria-invalid="!!errors.displayName"
-                  :aria-describedby="errors.displayName ? 'reg-name-error' : undefined"
-                />
-                <span v-if="errors.displayName" id="reg-name-error" class="field-error" role="alert">{{ errors.displayName }}</span>
+                <label for="reg-name">Display Name</label>
+                <input id="reg-name" v-model="regForm.displayName" type="text" placeholder="Your name" required />
               </div>
               <div class="field-group">
-                <label for="reg-username">
-                  Username
-                  <span class="field-hint" aria-label="username prefix symbol">@</span>
-                  <span class="required-indicator" aria-label="required">*</span>
-                </label>
-                <input
-                  id="reg-username"
-                  v-model="regForm.username"
-                  type="text"
-                  placeholder="unique_handle"
-                  autocomplete="username"
-                  required
-                  maxlength="30"
-                  aria-describedby="reg-username-hint reg-username-error"
-                  :aria-invalid="!!errors.username"
-                  @input="validateUsername"
-                />
-                <span id="reg-username-hint" class="field-hint-text">Letters, numbers, underscores. Min 3 chars.</span>
-                <span v-if="errors.username" id="reg-username-error" class="field-error" role="alert">{{ errors.username }}</span>
+                <label for="reg-username">Username</label>
+                <input id="reg-username" v-model="regForm.username" type="text" placeholder="unique_handle" required />
               </div>
             </div>
-
             <div class="field-group">
-              <label for="reg-email">
-                Email address
-                <span class="required-indicator" aria-label="required">*</span>
-              </label>
-              <input
-                id="reg-email"
-                v-model="regForm.email"
-                type="email"
-                placeholder="you@example.com"
-                autocomplete="email"
-                required
-                :aria-invalid="!!errors.email"
-                :aria-describedby="errors.email ? 'reg-email-error' : undefined"
-              />
-              <span v-if="errors.email" id="reg-email-error" class="field-error" role="alert">{{ errors.email }}</span>
+              <label for="reg-email">Email</label>
+              <input id="reg-email" v-model="regForm.email" type="email" placeholder="you@example.com" required :disabled="userType === 'email'" />
             </div>
-
             <div class="field-group">
-              <label for="reg-password">
-                Password
-                <span class="required-indicator" aria-label="required">*</span>
-              </label>
-              <div class="password-wrapper">
-                <input
-                  id="reg-password"
-                  v-model="regForm.password"
-                  :type="showPassword ? 'text' : 'password'"
-                  placeholder="At least 8 characters"
-                  autocomplete="new-password"
-                  required
-                  minlength="8"
-                  aria-describedby="reg-password-strength reg-password-error"
-                  :aria-invalid="!!errors.password"
-                />
-                <button
-                  type="button"
-                  class="eye-btn"
-                  @click="showPassword = !showPassword"
-                  :aria-label="showPassword ? 'Hide password' : 'Show password'"
-                  :aria-pressed="showPassword"
-                >
-                  <span aria-hidden="true">{{ showPassword ? '🙈' : '👁️' }}</span>
-                </button>
-              </div>
-              <div
-                v-if="regForm.password"
-                id="reg-password-strength"
-                class="password-strength"
-                aria-live="polite"
-                :aria-label="`Password strength: ${passwordStrengthLabel}`"
-              >
-                <div class="strength-bar" aria-hidden="true">
-                  <div :class="['strength-fill', passwordStrengthClass]" :style="{ width: passwordStrengthPct + '%' }"></div>
-                </div>
-                <span class="strength-label">Strength: {{ passwordStrengthLabel }}</span>
-              </div>
-              <span v-if="errors.password" id="reg-password-error" class="field-error" role="alert">{{ errors.password }}</span>
+              <label for="reg-password">Password</label>
+              <input id="reg-password" v-model="regForm.password" type="password" placeholder="At least 8 characters" required />
             </div>
-
             <div class="field-group">
-              <label for="reg-phone">Phone <span class="optional-label">(optional)</span></label>
-              <input
-                id="reg-phone"
-                v-model="regForm.phone"
-                type="tel"
-                placeholder="+1 555 000 0000"
-                autocomplete="tel"
-                aria-describedby="reg-phone-hint"
-              />
-              <span id="reg-phone-hint" class="field-hint-text">Used for profile display only if you choose to show it.</span>
-            </div>
-
-            <div
-              v-if="formError"
-              class="form-error"
-              role="alert"
-              aria-live="assertive"
-              aria-atomic="true"
-            >
-              <span aria-hidden="true">⚠</span> {{ formError }}
+              <label for="reg-phone">Phone (Optional)</label>
+              <input id="reg-phone" v-model="regForm.phone" type="tel" placeholder="+1 555 000 0000" :disabled="userType === 'phone'" />
             </div>
 
             <button
@@ -287,113 +148,223 @@
               :disabled="isLoading"
               :aria-busy="isLoading"
             >
+              <span>{{ isLoading ? 'Creating account...' : 'Create Account' }}</span>
               <span v-if="isLoading" class="spinner" aria-hidden="true"></span>
-              <span>{{ isLoading ? 'Creating account…' : 'Create Account' }}</span>
             </button>
+            <button type="button" @click="step = 'initial'" class="back-link">Cancel</button>
+          </form>
 
-            <div class="divider" role="separator" aria-label="or continue with"></div>
+          <!-- Step: Success -->
+          <div v-else-if="step === 'success'" class="success-ui">
+            <div class="success-icon">✅</div>
+            <h2>{{ successMessage.title }}</h2>
+            <p>{{ successMessage.body }}</p>
+            <button @click="step = 'initial'" class="submit-btn">Return to Sign In</button>
+          </div>
 
+          <!-- Common Error Display -->
+          <div v-if="formError" class="form-error" role="alert">
+            <span>⚠</span> {{ formError }}
+          </div>
+
+          <!-- Always Available Google Sign-in -->
+          <div v-if="step !== 'success'" class="google-section">
+            <div class="divider" role="separator"><span>or</span></div>
             <button
               type="button"
               class="google-btn"
               @click="handleGoogleLogin"
               :disabled="isLoading"
-              :aria-busy="isLoading"
             >
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
               </svg>
               Continue with Google
             </button>
-
-            <p class="terms-text">
-              By creating an account you agree to our 
-              <RouterLink to="/privacy-policy" class="policy-link">Privacy Policy</RouterLink>, 
-              <RouterLink to="/terms-of-use" class="policy-link">Terms of Use</RouterLink>, and 
-              <RouterLink to="/ugc-disclosure" class="policy-link">UGC Disclosure</RouterLink>.
-            </p>
-          </form>
-        </section>
+          </div>
+        </div>
       </main>
+
+      <!-- Constant Footer -->
+      <footer class="auth-footer">
+        <p class="policies">
+          By continuing, you agree to our 
+          <RouterLink to="/privacy-policy">Privacy Policy</RouterLink> and 
+          <RouterLink to="/terms-of-use">Terms of Use</RouterLink>.
+        </p>
+        <p class="copyright">© 2026 SoftConnect. All rights reserved.</p>
+        <p class="credits">Built with privacy in mind.</p>
+      </footer>
     </div>
 
-    <div aria-live="polite" aria-atomic="true" class="sr-only" role="status">{{ announcement }}</div>
+    <div aria-live="polite" class="sr-only">{{ announcement }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  registerUser,
+  checkEmailExists,
+  getUserByPhone,
   loginUser,
   loginWithGoogle,
-  resetPassword
+  registerUser,
+  sendMagicLink,
+  resetPassword,
+  type UserProfile
 } from '../services/firebase'
 import { useAppStore } from '../stores/app'
+
+type Step = 'initial' | 'exists' | 'create' | 'password' | 'success'
 
 const router = useRouter()
 const appStore = useAppStore()
 
-const mode = ref<'login' | 'register'>('login')
+const step = ref<Step>('initial')
 const isLoading = ref(false)
+const userInput = ref('')
+const userType = ref<'email' | 'phone' | null>(null)
+const foundUser = ref<UserProfile | null>(null)
+const password = ref('')
 const showPassword = ref(false)
 const formError = ref('')
 const announcement = ref('')
-const errors = ref<Record<string, string>>({})
-
-const loginForm = ref({ email: '', password: '' })
-const regForm = ref({ displayName: '', username: '', email: '', password: '', phone: '' })
-
-const passwordStrengthPct = computed(() => {
-  const p = regForm.value.password
-  let score = 0
-  if (p.length >= 8) score += 25
-  if (p.length >= 12) score += 15
-  if (/[A-Z]/.test(p)) score += 20
-  if (/[0-9]/.test(p)) score += 20
-  if (/[^A-Za-z0-9]/.test(p)) score += 20
-  return Math.min(score, 100)
+const errors = reactive({ identifier: '' })
+const regForm = reactive({
+  displayName: '',
+  username: '',
+  email: '',
+  password: '',
+  phone: ''
 })
-const passwordStrengthClass = computed(() => {
-  const p = passwordStrengthPct.value
-  if (p < 40) return 'weak'
-  if (p < 70) return 'medium'
-  return 'strong'
-})
-const passwordStrengthLabel = computed(() => {
-  const p = passwordStrengthPct.value
-  if (p < 40) return 'Weak'
-  if (p < 70) return 'Medium'
-  return 'Strong'
+const successType = ref<'magic' | 'reset'>('magic')
+
+const currentUI = computed(() => {
+  const firstName = foundUser.value?.displayName.split(' ')[0] || ''
+  
+  switch (step.value) {
+    case 'initial':
+      return {
+        heading: 'Welcome back to softConnect',
+        description: 'Open, Private, fully yours. Enter your Email or phone number to continue'
+      }
+    case 'exists':
+    case 'password':
+      return {
+        heading: 'Sign in to SoftConnect',
+        description: `Welcome ${firstName}. Choose a way to sign in to your account. Once signed in, you'll stay signed in on this device for up to 1 year or until you manually log out.`
+      }
+    case 'create':
+      return {
+        heading: 'Join Softconnect',
+        description: "Welcome to SoftConnect. We'll help you create your account so you can enjoy the true potential of SoftConnect. Enter the below details to proceed."
+      }
+    default:
+      return { heading: '', description: '' }
+  }
 })
 
-function validateUsername() {
-  const u = regForm.value.username
-  if (!/^[a-zA-Z0-9_]+$/.test(u)) {
-    errors.value.username = 'Only letters, numbers, underscores'
-  } else if (u.length < 3) {
-    errors.value.username = 'At least 3 characters'
+const successMessage = computed(() => {
+  if (successType.value === 'magic') {
+    return {
+      title: 'Magic link sent!',
+      body: 'Check your inbox for a sign-in link. You can close this tab now or wait to be redirected.'
+    }
   } else {
-    delete errors.value.username
+    return {
+      title: 'Password reset sent!',
+      body: 'Check your email for instructions to reset your password.'
+    }
+  }
+})
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const phoneRegex = /^[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,9}$/
+
+async function handleNext() {
+  formError.value = ''
+  errors.identifier = ''
+  const val = userInput.value.trim()
+  
+  if (emailRegex.test(val)) {
+    userType.value = 'email'
+  } else if (phoneRegex.test(val.replace(/\s/g, ''))) {
+    userType.value = 'phone'
+  } else {
+    errors.identifier = 'Please enter a valid email or phone number'
+    return
+  }
+
+  isLoading.value = true
+  try {
+    if (userType.value === 'email') {
+      const exists = await checkEmailExists(val)
+      if (exists) {
+        step.value = 'exists'
+        regForm.email = val
+      } else {
+        step.value = 'create'
+        regForm.email = val
+      }
+    } else {
+      const user = await getUserByPhone(val)
+      if (user) {
+        foundUser.value = user
+        regForm.email = user.email
+        regForm.phone = user.phone || val
+        step.value = 'exists'
+      } else {
+        step.value = 'create'
+        regForm.phone = val
+      }
+    }
+  } catch (e: any) {
+    formError.value = 'An error occurred. Please try again.'
+  } finally {
+    isLoading.value = false
   }
 }
 
-async function handleLogin() {
+async function handleSendMagicLink() {
   formError.value = ''
-  errors.value = {}
-  if (!loginForm.value.email) { errors.value.email = 'Email required'; return }
   isLoading.value = true
   try {
-    await loginUser(loginForm.value.email, loginForm.value.password)
-    announcement.value = 'Signed in successfully. Redirecting to dashboard.'
+    await sendMagicLink(regForm.email)
+    successType.value = 'magic'
+    step.value = 'success'
+  } catch (e: any) {
+    formError.value = 'Could not send magic link.'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function handlePasswordSignIn() {
+  formError.value = ''
+  isLoading.value = true
+  try {
+    await loginUser(regForm.email, password.value)
     router.push('/dashboard')
   } catch (e: any) {
-    formError.value = friendlyError(e.code)
-    announcement.value = `Sign in failed: ${formError.value}`
+    formError.value = 'Invalid password or account error.'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function handleResetPassword() {
+  formError.value = ''
+  isLoading.value = true
+  try {
+    await resetPassword(regForm.email)
+    successType.value = 'reset'
+    step.value = 'success'
+  } catch (e: any) {
+    formError.value = 'Could not send reset email.'
   } finally {
     isLoading.value = false
   }
@@ -401,75 +372,32 @@ async function handleLogin() {
 
 async function handleRegister() {
   formError.value = ''
-  errors.value = {}
-  validateUsername()
-  if (Object.keys(errors.value).length) return
-  if (regForm.value.password.length < 8) {
-    errors.value.password = 'At least 8 characters'
-    return
-  }
   isLoading.value = true
   try {
     await registerUser(
-      regForm.value.email,
-      regForm.value.password,
-      regForm.value.displayName,
-      regForm.value.username
+      regForm.email,
+      regForm.password,
+      regForm.displayName,
+      regForm.username,
+      regForm.phone || null
     )
-    announcement.value = 'Account created! Check your email to verify.'
-    appStore.addNotification('Account created! Check your email to verify.', 'success')
     router.push('/dashboard')
   } catch (e: any) {
-    formError.value = e.message || friendlyError(e.code)
-    announcement.value = `Account creation failed: ${formError.value}`
+    formError.value = e.message || 'Registration failed.'
   } finally {
     isLoading.value = false
   }
 }
 
 async function handleGoogleLogin() {
-  formError.value = ''
   isLoading.value = true
   try {
     await loginWithGoogle()
-    announcement.value = 'Signed in with Google. Redirecting to dashboard.'
-    router.push('/dashboard')
+    // Redirect happens
   } catch (e: any) {
-    formError.value = friendlyError(e.code)
-    announcement.value = `Google sign-in failed: ${formError.value}`
-  } finally {
+    formError.value = 'Google login failed.'
     isLoading.value = false
   }
-}
-
-async function handleForgotPassword() {
-  if (!loginForm.value.email) {
-    errors.value.email = 'Enter your email address first'
-    announcement.value = 'Please enter your email address to reset your password'
-    return
-  }
-  try {
-    await resetPassword(loginForm.value.email)
-    appStore.addNotification('Password reset email sent!', 'success')
-    announcement.value = 'Password reset email sent. Check your inbox.'
-  } catch {
-    formError.value = 'Could not send reset email'
-    announcement.value = 'Could not send password reset email. Please try again.'
-  }
-}
-
-function friendlyError(code: string): string {
-  const map: Record<string, string> = {
-    'auth/user-not-found': 'No account found with that email',
-    'auth/wrong-password': 'Incorrect password',
-    'auth/email-already-in-use': 'Email already registered',
-    'auth/weak-password': 'Password too weak',
-    'auth/invalid-email': 'Invalid email address',
-    'auth/too-many-requests': 'Too many attempts. Try again later.',
-    'auth/network-request-failed': 'Network error. Check your connection.',
-    'auth/popup-closed-by-user': 'Login cancelled',
-  }
-  return map[code] || 'Something went wrong. Please try again.'
 }
 </script>
 
@@ -532,7 +460,7 @@ function friendlyError(code: string): string {
   max-width: 480px;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 2rem;
 }
 
 .auth-header {
@@ -580,198 +508,96 @@ function friendlyError(code: string): string {
   text-transform: uppercase;
 }
 
-.tab-switcher {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  background: rgba(255,255,255,0.05);
-  border-radius: 12px;
-  padding: 4px;
-  margin-bottom: 1.75rem;
-  gap: 4px;
+.main-heading {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.5rem;
+  color: #fff;
+  margin-bottom: 0.75rem;
+  line-height: 1.2;
 }
 
-.tab {
-  padding: 0.625rem;
-  border: none;
-  background: transparent;
-  color: rgba(255,255,255,0.55);
-  border-radius: 9px;
-  font-size: 0.9rem;
-  font-weight: 500;
+.main-description {
+  color: rgba(255,255,255,0.6);
+  font-size: 0.95rem;
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+
+.account-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 2rem;
+}
+
+.identity-text {
+  font-weight: 600;
+  color: #fff;
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 250px;
+}
+
+.change-account-btn {
+  background: rgba(92, 59, 255, 0.15);
+  border: 1px solid rgba(92, 59, 255, 0.3);
+  color: #a78bfa;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: inherit;
-  min-height: 44px;
-}
-.tab.active {
-  background: rgba(92, 59, 255, 0.5);
-  color: #fff;
-  font-weight: 600;
-}
-.tab:focus-visible {
-  outline: 3px solid #7c6fff;
-  outline-offset: 2px;
 }
 
-.auth-form { display: flex; flex-direction: column; gap: 1rem; }
+.change-account-btn:hover {
+  background: rgba(92, 59, 255, 0.25);
+  border-color: rgba(92, 59, 255, 0.5);
+  color: #fff;
+}
+
+.auth-form { display: flex; flex-direction: column; gap: 1.25rem; }
 
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 
 .field-group {
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
-}
-
-.field-group label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: rgba(255,255,255,0.7);
-  letter-spacing: 0.04em;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.required-indicator {
-  color: #ff6b8a;
-  font-weight: 700;
-  margin-left: 2px;
-}
-
-.optional-label {
-  color: rgba(255,255,255,0.35);
-  font-weight: 400;
-  font-size: 0.78rem;
-}
-
-.field-hint {
-  background: rgba(92,59,255,0.3);
-  color: #a78bfa;
-  font-size: 0.75rem;
-  padding: 0 4px;
-  border-radius: 4px;
-}
-
-.field-hint-text {
-  font-size: 0.72rem;
-  color: rgba(255,255,255,0.35);
-  line-height: 1.3;
-}
-
-.field-group input {
-  background: rgba(255,255,255,0.07);
-  border: 1.5px solid rgba(255,255,255,0.12);
-  border-radius: 10px;
-  padding: 0.75rem 1rem;
-  color: #fff;
-  font-size: 0.95rem;
-  font-family: inherit;
-  transition: all 0.2s;
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 48px;
-}
-.field-group input:focus {
-  outline: none;
-  border-color: #7c6fff;
-  background: rgba(92,59,255,0.09);
-  box-shadow: 0 0 0 3px rgba(92,59,255,0.18);
-}
-.field-group input::placeholder { color: rgba(255,255,255,0.22); }
-.field-group input[aria-invalid="true"] {
-  border-color: #ff6b8a;
-  background: rgba(255,59,140,0.06);
-}
-
-.password-wrapper {
-  position: relative;
-}
-.password-wrapper input { padding-right: 3.25rem; }
-.eye-btn {
-  position: absolute;
-  right: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 0.25rem;
-  color: rgba(255,255,255,0.45);
-  border-radius: 4px;
-  min-width: 32px; min-height: 32px;
-  display: flex; align-items: center; justify-content: center;
-}
-.eye-btn:focus-visible {
-  outline: 3px solid #7c6fff;
-  outline-offset: 1px;
-}
-
-.forgot-link {
-  background: none;
-  border: none;
-  color: #7c6fff;
-  font-size: 0.8rem;
-  cursor: pointer;
-  text-align: right;
-  padding: 0.125rem 0;
-  font-family: inherit;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  align-self: flex-end;
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-}
-.forgot-link:hover { color: #a78bfa; }
-.forgot-link:focus-visible {
-  outline: 3px solid #7c6fff;
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-.password-strength { margin-top: 0.25rem; }
-.strength-bar {
-  height: 4px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 0.25rem;
-}
-.strength-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: all 0.3s;
-}
-.strength-fill.weak { background: #ff6b8a; }
-.strength-fill.medium { background: #fbbf24; }
-.strength-fill.strong { background: #34d399; }
-.strength-label { font-size: 0.72rem; color: rgba(255,255,255,0.45); }
-
-.field-error {
-  font-size: 0.78rem;
-  color: #ff9bb5;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.form-error {
-  background: rgba(255, 59, 140, 0.1);
-  border: 1.5px solid rgba(255, 59, 140, 0.35);
-  border-radius: 10px;
-  padding: 0.875rem;
-  font-size: 0.875rem;
-  color: #ff9bb5;
-  display: flex;
-  align-items: center;
   gap: 0.5rem;
 }
 
+.field-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.8);
+}
+
+.field-group input {
+  background: rgba(255,255,255,0.05);
+  border: 1.5px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  color: #fff;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+.field-group input:focus {
+  outline: none;
+  border-color: #5c3bff;
+  background: rgba(92,59,255,0.08);
+}
+
+.field-error { color: #ff6b8a; font-size: 0.8rem; margin-top: 0.25rem; }
+
 .submit-btn {
   width: 100%;
-  padding: 0.875rem;
+  padding: 1rem;
   background: linear-gradient(135deg, #5c3bff, #7c3bff);
   border: none;
   border-radius: 12px;
@@ -779,107 +605,135 @@ function friendlyError(code: string): string {
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
-  font-family: inherit;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: 52px;
-  letter-spacing: 0.02em;
-}
-.submit-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #6d4fff, #8d4fff);
-  transform: translateY(-1px);
-  box-shadow: 0 8px 25px rgba(92,59,255,0.4);
-}
-.submit-btn:focus-visible {
-  outline: 3px solid #a78bfa;
-  outline-offset: 3px;
-}
-.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-
-.spinner {
-  width: 18px; height: 18px;
-  border: 2.5px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.divider {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  color: rgba(255,255,255,0.25);
-  font-size: 0.78rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-.divider::before, .divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(255,255,255,0.1);
-}
-.divider::after { content: 'or'; display: none; }
-/* Show "or" as pseudo-element text via aria-label on the element */
-
-.google-btn {
-  width: 100%;
-  padding: 0.75rem;
-  background: rgba(255,255,255,0.07);
-  border: 1.5px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
-  color: #fff;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: inherit;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
   transition: all 0.2s;
-  min-height: 52px;
 }
-.google-btn:hover:not(:disabled) {
-  background: rgba(255,255,255,0.11);
-  border-color: rgba(255,255,255,0.22);
+.submit-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
-.google-btn:focus-visible {
-  outline: 3px solid #7c6fff;
-  outline-offset: 2px;
-}
-.google-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.terms-text {
-  font-size: 0.75rem;
-  color: rgba(255,255,255,0.28);
-  text-align: center;
-  line-height: 1.5;
-  margin: 0;
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
+.spinner-small {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-left: 0.5rem;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-.policy-link {
-  color: #7c6fff;
+.method-list { display: flex; flex-direction: column; gap: 1rem; }
+
+.method-btn {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  background: rgba(255,255,255,0.05);
+  border: 1.5px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+  color: #fff;
+  width: 100%;
+}
+.method-btn:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.15);
+}
+.method-btn .icon { font-size: 1.5rem; }
+.method-btn .text { display: flex; flex-direction: column; }
+.method-btn strong { font-size: 1rem; }
+.method-btn span { font-size: 0.85rem; color: rgba(255,255,255,0.5); }
+
+.back-link {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-top: 1rem;
   text-decoration: underline;
-  text-underline-offset: 2px;
+}
+.back-link:hover { color: #fff; }
+
+.password-wrapper { position: relative; }
+.eye-btn {
+  position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.5);
 }
 
-.policy-link:hover {
-  color: #a78bfa;
+.password-actions { display: flex; justify-content: flex-end; }
+.forgot-link {
+  background: none; border: none; color: #7c6fff; font-size: 0.85rem; cursor: pointer;
 }
+
+.success-ui { text-align: center; }
+.success-icon { font-size: 3rem; margin-bottom: 1rem; }
+.success-ui h2 { color: #fff; margin-bottom: 0.5rem; }
+.success-ui p { color: rgba(255,255,255,0.6); margin-bottom: 2rem; }
+
+.form-error {
+  margin-top: 1.5rem;
+  padding: 0.75rem;
+  background: rgba(255,107,138,0.1);
+  border: 1px solid rgba(255,107,138,0.3);
+  border-radius: 8px;
+  color: #ff6b8a;
+  font-size: 0.9rem;
+  display: flex; align-items: center; gap: 0.5rem;
+}
+
+.google-section { margin-top: 1.5rem; }
+.divider {
+  display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;
+  color: rgba(255,255,255,0.2); font-size: 0.8rem; text-transform: uppercase;
+}
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
+
+.google-btn {
+  width: 100%;
+  padding: 0.75rem;
+  background: rgba(255,255,255,0.05);
+  border: 1.5px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 0.75rem;
+  transition: all 0.2s;
+}
+.google-btn:hover { background: rgba(255,255,255,0.1); }
+
+.auth-footer {
+  text-align: center;
+  color: rgba(255,255,255,0.3);
+  font-size: 0.8rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+.policies a { color: #7c6fff; text-decoration: underline; }
 
 .sr-only {
-  position: absolute; width: 1px; height: 1px;
-  padding: 0; margin: -1px; overflow: hidden;
-  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); border: 0;
 }
 
 @media (max-width: 500px) {
-  .auth-card { padding: 1.75rem 1.25rem; }
+  .auth-card { padding: 1.5rem; }
   .form-row { grid-template-columns: 1fr; }
 }
 </style>
